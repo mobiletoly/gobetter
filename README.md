@@ -1,4 +1,4 @@
-# GO Better
+# GO Better - code generator for struct required fields
 
 This project is an attempt to address lack of required fields in Go's struct types. As you are aware, when you create a
 structure in Go - you cannot specify required fields. For example, if we have a structure for Person such as
@@ -24,7 +24,7 @@ var person = Person{
 
 This is all good unless you have a different places where you have to create a `Person` structure, then when you
 add new fields, it will become a challenge to scan through code to find all occurrences of creating Person. One of
-the suggestion you can normally find is to create a construction function with arguments representing required fields.
+the suggestions you can find is to create a construction function with arguments representing required fields.
 In this case you can create and fill `Person` structure with `NewPerson()` constructor. Here is an example:
 
 ```
@@ -37,17 +37,17 @@ func NewPerson(firstName string, lastName string, age int) Person {
 }
 ```
 
-The typical will be be `person := NewPerson("Joe", "Doe", 40)`
+The typical call will be `person := NewPerson("Joe", "Doe", 40)`.
 This is actually not a bad solution, but unfortunately it means that you have to manually update your `NewPerson`
 function every time when you add or remove fields. Moreover, because Go does not have named parameters, you
 need to be very careful when you move fields within the structure or add a new one, because you might start
 passing wrong values. E.g. if you swap FirstName and LastName in Person structure then suddenly your call to `NewPerson` 
 will be resulting in FirstName being "Doe" and LastName being "Joe". Compiler does not help us here.
 
-So the approach I would like to use is to create a simple struct wrapper for every required field, such as
+The approach I would like to use is to create a simple struct wrapper for every required field, such as
 
 ```
-// structures for arguments
+// structures for arguments (you don't create them directly)
 
 type PersonFirstNameArg struct {
     Arg string
@@ -59,7 +59,7 @@ type PersonAgeArgArg struct {
     Arg int
 }
 
-// single-argument constructor for every argument structure
+// single-argument constructor for every argument structure (you pass it to main constructor)
 
 func PersonFirstName(arg string) PersonFirstNameArg {
     return PersonFirstNameArg{Arg: arg}
@@ -99,24 +99,24 @@ person := NewPerson(
 )
 ```
 
-that is it! Now we have required fields and compiler will guarantee (with compiler-time errors) that we pass
+This is it! Now we have required fields and compiler will guarantee (with compiler-time errors) that we pass
 parameters in correct order.
 
-But, you don't want to do this work manually, especially if you have to deal with many large structures. That is why
-we have depeveloper a tool called `gobetter` to generate all this structs and constructors for you.
+But you don't want to do this work manually, especially if you have to deal with many large structures. That is why
+we have depeveloper a tool called **gobetter** to generate all this structs and constructors for you.
 
 ### Pre-requisites
 
 You have to install two tools:
 
-First one is `goimports` (if you don't have it already installed). It will be used by gobetter to optimize imports
-and perform proper formatting.
+First one is **goimports** (if you don't have it already installed). It will be used by **gobetter** to optimize
+imports and perform proper formatting.
 
 ```shell
 go get -u golang.org/x/tools/cmd/goimports
 ```
 
-Then you must install `gobetter` itself:
+Then you must install **gobetter** itself:
 
 ```shell
 go get -u github.com/mobiletoly/gobetter
