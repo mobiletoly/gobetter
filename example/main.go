@@ -6,19 +6,18 @@ import (
 	"strings"
 )
 
-// Person is not marked with +constructor flag
-type Person struct { //+constructor
-	FirstName, LastName string                                   //+required
-	Age                 int                                      `json:"age"` //+required
+type Person struct { //+gob:constructor
+	firstName, lastName string                                   //+gob:required +gob:getter
+	Age                 int                                      `json:"age"` //+gob:required
 	Description         *string                                  `json:"description"`
 	Tags                []int                                    `json:"tags"`
-	ZZ                  func(a1, a2 int, a3 *string) interface{} //+required
-	Test                strings.Builder                          //+required
+	zz                  func(a1, a2 int, a3 *string) interface{} //+gob:required +gob:getter
+	test                strings.Builder                          //+gob:required +gob:getter
 	test2               *ast.Scope
 }
 
-// AnotherPerson is not marked with +constructor flag
+// AnotherPerson is not marked with constructor flag and will not be processed
 type AnotherPerson struct {
-	FirstName, LastName string //+required
-	Age                 int    `json:"age"` //+required
+	FirstName, LastName string //+gob:required
+	Age                 int    `json:"age"` //+gob:required
 }

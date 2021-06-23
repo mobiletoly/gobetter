@@ -6,24 +6,32 @@ import (
 	"strings"
 )
 
-// PersonFirstNameArg represents field FirstName of struct Person
+// PersonFirstNameArg represents field firstName of struct Person
 type PersonFirstNameArg struct {
 	Arg string
 }
 
-// PersonFirstName creates argument for field FirstName
+// PersonFirstName creates argument for field firstName
 func PersonFirstName(arg string) PersonFirstNameArg {
 	return PersonFirstNameArg{Arg: arg}
 }
 
-// PersonLastNameArg represents field LastName of struct Person
+func (v Person) FirstName() string {
+	return v.firstName
+}
+
+// PersonLastNameArg represents field lastName of struct Person
 type PersonLastNameArg struct {
 	Arg string
 }
 
-// PersonLastName creates argument for field LastName
+// PersonLastName creates argument for field lastName
 func PersonLastName(arg string) PersonLastNameArg {
 	return PersonLastNameArg{Arg: arg}
+}
+
+func (v Person) LastName() string {
+	return v.lastName
 }
 
 // PersonAgeArg represents field Age of struct Person
@@ -36,24 +44,32 @@ func PersonAge(arg int) PersonAgeArg {
 	return PersonAgeArg{Arg: arg}
 }
 
-// PersonZZArg represents field ZZ of struct Person
-type PersonZZArg struct {
+// PersonZzArg represents field zz of struct Person
+type PersonZzArg struct {
 	Arg func(a1, a2 int, a3 *string) interface{}
 }
 
-// PersonZZ creates argument for field ZZ
-func PersonZZ(arg func(a1, a2 int, a3 *string) interface{}) PersonZZArg {
-	return PersonZZArg{Arg: arg}
+// PersonZz creates argument for field zz
+func PersonZz(arg func(a1, a2 int, a3 *string) interface{}) PersonZzArg {
+	return PersonZzArg{Arg: arg}
 }
 
-// PersonTestArg represents field Test of struct Person
+func (v Person) Zz() func(a1, a2 int, a3 *string) interface{} {
+	return v.zz
+}
+
+// PersonTestArg represents field test of struct Person
 type PersonTestArg struct {
 	Arg strings.Builder
 }
 
-// PersonTest creates argument for field Test
+// PersonTest creates argument for field test
 func PersonTest(arg strings.Builder) PersonTestArg {
 	return PersonTestArg{Arg: arg}
+}
+
+func (v Person) Test() strings.Builder {
+	return v.test
 }
 
 // NewPerson creates new instance of Person struct
@@ -61,14 +77,14 @@ func NewPerson(
 	argFirstName PersonFirstNameArg,
 	argLastName PersonLastNameArg,
 	argAge PersonAgeArg,
-	argZZ PersonZZArg,
+	argZz PersonZzArg,
 	argTest PersonTestArg,
 ) Person {
 	return Person{
-		FirstName: argFirstName.Arg,
-		LastName:  argLastName.Arg,
+		firstName: argFirstName.Arg,
+		lastName:  argLastName.Arg,
 		Age:       argAge.Arg,
-		ZZ:        argZZ.Arg,
-		Test:      argTest.Arg,
+		zz:        argZz.Arg,
+		test:      argTest.Arg,
 	}
 }

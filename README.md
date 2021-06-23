@@ -134,19 +134,23 @@ package main
 
 ...
 
-type Person struct { //+constructor
-	FirstName   string `json:"first_name"` //+required
-	LastName    string `json:"last_name"` //+required
-	Age         int    `json:"age"` //+required
+type Person struct { //+gob:constructor
+	firstName   string `json:"first_name"` //+gob:required, +gob:getter
+	lastName    string `json:"last_name"` //+gob:required, +gob:getter
+	Age         int    `json:"age"` //+gob:required
 	Description string `json:"description"`
 }
 ```
 
-`+constructor` comment serves as a flag and must be on the same line as struct (you can add more text to this comment
+`+gob:constructor` comment serves as a flag and must be on the same line as struct (you can add more text to this comment
 but flag needs to be a separate word). It instructs gobetter to generate argument structures and constructor for this
 structure.
 
-`+required` flag in comment hints gobetter that structure field is required and must be added to constructor.
+`+gob:required` flag in comment hints gobetter that structure field is required and must be added to constructor.
+
+`+gob:getter` is to generate a getter for field, should be applied only for fields that start in lowercase (fields
+that are not accessible outside of a package). It will effectively make these fields read-only for callers outside
+of a package.
 
 All you have to do now is to run `go generate` tool to generate go files that will be containing argument structures
 as well as constructors for your structures.
