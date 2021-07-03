@@ -1,7 +1,12 @@
 # GO Better - code generator for struct required fields
 
-This project is an attempt to address lack of required fields in Go's struct types. As you are aware, when you create a
-structure in Go - you cannot specify required fields. For example, if we have a structure for Person such as
+This project is an attempt to address lack of required fields in Go's struct types and to create a constructor that
+will actually enforce specifying mandatory fields in constructor with the approach similar to "named arguments".
+Named arguments will allow you to specify multiple arguments in constructor without concerns that you have to be
+very careful passing arguments in correct order.
+
+As you are aware, when you create a structure in Go - you cannot specify required fields. For example, if we have
+a structure for Person such as
 
 ```
 type Person struct {
@@ -132,12 +137,24 @@ data structure that you use to serialize/deserialize JSON is going to look like
 //go:generate gobetter $GOFILE
 package main
 
-...
+type Person struct { //+gob:constructor
+	firstName   string  //+gob:required, +gob:getter
+	lastName    string  //+gob:required, +gob:getter
+	Age         int     //+gob:required
+	Description string
+}
+```
+
+or if you want to use it with field tags (e.g. to serialize/deserialize JSON):
+
+```
+//go:generate gobetter $GOFILE
+package main
 
 type Person struct { //+gob:constructor
-	firstName   string `json:"first_name"` //+gob:required, +gob:getter
-	lastName    string `json:"last_name"` //+gob:required, +gob:getter
-	Age         int    `json:"age"` //+gob:required
+	firstName   string `json:"first_name"`  //+gob:required, +gob:getter
+	lastName    string `json:"last_name"`   //+gob:required, +gob:getter
+	Age         int    `json:"age"`         //+gob:required
 	Description string `json:"description"`
 }
 ```
@@ -161,3 +178,13 @@ go generate ./...
 
 For example if you have a file in example package `example/main.go` then new file `example/main_gob.go` will be
 generated, and it will contain argument structures and constructors for structures from `main.go` file.
+
+### Integration with IntelliJ
+
+It can be annoying to run `go generate ./...` from a terminal every time, more this command will generate required
+fields support for all your files every time, while most of the time you want to do it on per-file basis. The easiest
+approach for IntelliJ is to setup a FileWatcher for .go files and run generate every time when you change a file.
+Depending on your OS - instructions can be slightly different but in overall they remain the same. For Mac OS in
+your IntelliJ select from main menu **IntelliJ IDEA / Preferences / Tools / File Watcher** and add <custom> task.
+name it `Go Generate for File` and setup `Files type: Go files`, `Program: go`, `Arguments: generate`. This will do it,
+now when you save Go file - `go generate` will be automatically run for your file.
