@@ -186,5 +186,11 @@ fields support for all your files every time, while most of the time you want to
 approach for IntelliJ is to setup a FileWatcher for .go files and run generate every time when you change a file.
 Depending on your OS - instructions can be slightly different but in overall they remain the same. For Mac OS in
 your IntelliJ select from main menu **IntelliJ IDEA / Preferences / Tools / File Watcher** and add <custom> task.
-name it `Go Generate for File` and setup `Files type: Go files`, `Program: go`, `Arguments: generate`. This will do it,
-now when you save Go file - `go generate` will be automatically run for your file.
+name it `Go Generate for File` and setup **Files type**: `Go files`, **Program**: `go`, **Arguments**: `generate`.<br>
+At this point it should work, but File Watcher will be monitoring your entire project directory and not only your own
+files, but also generated _gob.go files as well and it means that gob files will be constantly regenerated and it might
+annoy you with a little status bar progress constantly flashing. We want to exclude generated gob files from being
+watched by selecting **Scope** text field. Click `...` button on the right of the **Scope** text field, in new window
+create new Local scope, name it (e.g. `My project files`) and add `!file:*_gob.go` to **Pattern** text field.
+
+This will do it. Now when you save Go file - `go generate` will be automatically run for your file.
