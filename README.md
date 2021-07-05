@@ -54,26 +54,26 @@ The approach I would like to use is to create a simple struct wrapper for every 
 ```
 // structures for arguments (you don't create them directly)
 
-type PersonFirstNameArg struct {
+type Person_FirstName_Arg struct {
     Arg string
 }
-type PersonLastNameArgArg struct {
+type Person_LastName_Arg struct {
     Arg string
 }
-type PersonAgeArgArg struct {
+type Person_Age_Arg struct {
     Arg int
 }
 
 // single-argument constructor for every argument structure (you pass it to main constructor)
 
-func PersonFirstName(arg string) PersonFirstNameArg {
-    return PersonFirstNameArg{Arg: arg}
+func Person_FirstName(arg string) Person_FirstName_Arg {
+    return Person_FirstNameArg{Arg: arg}
 }
-func PersonLastName(arg string) PersonLastNameArg {
-    return PersonLastNameArg{Arg: arg}
+func Person_LastName(arg string) Person_LastName_Arg {
+    return Person_LastNameArg{Arg: arg}
 }
-func PersonAge(arg int) PersonAgeArg {
-    return PersonAgeArg{Arg: arg}
+func Person_Age(arg int) Person_Age_Arg {
+    return Person_AgeArg{Arg: arg}
 }
 
 ```
@@ -82,9 +82,9 @@ then constructor function is going to look like
 
 ```
 func NewPerson(
-    argFirstName PersonFirstNameArg,
-    argLastName PersonLastNameArg,
-    argAge PersonAgeArg,
+    argFirstName Person_FirstName_Arg,
+    argLastName Person_LastName_Arg,
+    argAge Person_Age_Arg,
 ) Person {
     return Person{
         FirstName: argFirstName.Arg,
@@ -98,9 +98,9 @@ Here is typical call to create a new instance of Person struct
 
 ```
 person := NewPerson(
-    PersonFirstName("Joe"),
-    PersonLastName("Doe"),
-    PersonAge(40),
+    Person_FirstName("Joe"),
+    Person_LastName("Doe"),
+    Person_Age(40),
 )
 ```
 
@@ -108,7 +108,7 @@ This is it! Now we have required fields and compiler will guarantee (with compil
 parameters in correct order.
 
 But you don't want to do this work manually, especially if you have to deal with many large structures. That is why
-we have depeveloper a tool called **gobetter** to generate all this structs and constructors for you.
+we have developed a tool called **gobetter** to generate all these structs and constructors for you.
 
 ### Pre-requisites
 
@@ -159,9 +159,9 @@ type Person struct { //+gob:constructor
 }
 ```
 
-`+gob:constructor` comment serves as a flag and must be on the same line as struct (you can add more text to this comment
-but flag needs to be a separate word). It instructs gobetter to generate argument structures and constructor for this
-structure.
+`+gob:constructor` comment serves as a flag and must be on the same line as struct (you can add more text to this
+comment but flag needs to be a separate word). It instructs gobetter to generate argument structures and constructor
+for this structure.
 
 `+gob:required` flag in comment hints gobetter that structure field is required and must be added to constructor.
 

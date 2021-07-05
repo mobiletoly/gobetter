@@ -45,23 +45,27 @@ func (bld *GobBuilder) appendImports() {
 }
 
 func (bld *GobBuilder) appendArgStruct(structName string, fieldName string, fieldType string) (structArgName string) {
-	structArgName = structName + strings.Title(fieldName) + "Arg"
+	structArgName = newStructArgName(structName, fieldName)
 	bld.common.WriteString(fmt.Sprintf("// %s represents field %s of struct %s\n", structArgName, fieldName, structName))
 	bld.common.WriteString(fmt.Sprintf("type %s struct {\n", structArgName))
 	bld.common.WriteString(fmt.Sprintf("\tArg %s\n}\n", fieldType))
 	bld.common.WriteString(fmt.Sprintf("// %s%s creates argument for field %s\n", structName, strings.Title(fieldName), fieldName))
-	bld.common.WriteString(fmt.Sprintf("func %s%s(arg %s) %s {\n", structName, strings.Title(fieldName),
+	bld.common.WriteString(fmt.Sprintf("func %s_%s(arg %s) %s {\n", structName, strings.Title(fieldName),
 		fieldType, structArgName))
 	bld.common.WriteString(fmt.Sprintf("\treturn %s{Arg: arg}\n}\n\n", structArgName))
 	return
 }
 
 func (bld *GobBuilder) appendArgStructConstructor(structName string, fieldName string, fieldType string) (structArgName string) {
-	structArgName = structName + strings.Title(fieldName) + "Arg"
+	structArgName = newStructArgName(structName, fieldName)
 	bld.common.WriteString(fmt.Sprintf("func %s%s(arg %s) %s {\n", structName, fieldName,
 		fieldType, structArgName))
 	bld.common.WriteString(fmt.Sprintf("\treturn %s{Arg: arg}\n}\n\n", structArgName))
 	return
+}
+
+func newStructArgName(structName string, fieldName string) string {
+	return structName + "_" + strings.Title(fieldName) + "_Arg"
 }
 
 func (bld *GobBuilder) appendBeginConstructorDef(structName string) {
