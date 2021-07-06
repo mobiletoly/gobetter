@@ -24,3 +24,5 @@
 .env
 .docker_build/
 bin/
+
+*_gob.go

@@ -179,18 +179,32 @@ go generate ./...
 For example if you have a file in example package `example/main.go` then new file `example/main_gob.go` will be
 generated, and it will contain argument structures and constructors for structures from `main.go` file.
 
+Now you can enforce required parameters via call:
+
+```
+person := NewPerson(
+    Person_FirstName("Joe"),
+    Person_LastName("Doe"),
+    Person_Age(40),
+)
+// optional parameters
+person.Description = "some description"
+```
+
 ### Integration with IntelliJ
 
-It can be annoying to run `go generate ./...` from a terminal every time, more this command will generate required
-fields support for all your files every time, while most of the time you want to do it on per-file basis. The easiest
-approach for IntelliJ is to setup a FileWatcher for .go files and run generate every time when you change a file.
-Depending on your OS - instructions can be slightly different but in overall they remain the same. For Mac OS in
-your IntelliJ select from main menu **IntelliJ IDEA / Preferences / Tools / File Watcher** and add <custom> task.
-name it `Go Generate for File` and setup **Files type**: `Go files`, **Program**: `go`, **Arguments**: `generate`.<br>
+It can be annoying to run `go generate ./...` from a terminal every time. Moreover, call this command will be generating
+required fields support for all your files every time, while most of the time you want to do it on per-file basis.
+The easiest approach for IntelliJ is to set up a FileWatcher for .go files and run generate command every time you
+change a file. Depending on your OS - instructions can be slightly different but in overall they remain the same.
+For Mac OS in your IntelliJ select from main menu **IntelliJ IDEA / Preferences / Tools / File Watcher** and add
+<custom> task. Name it `Go Generate files` and setup **Files type**: `Go files`, **Program**: `go`,
+**Arguments**: `generate`.<br>
 At this point it should work, but File Watcher will be monitoring your entire project directory and not only your own
-files, but also generated _gob.go files as well and it means that gob files will be constantly regenerated and it might
+files, but also generated _gob.go files as well. It means that gob files will be constantly re-generated, and it might
 annoy you with a little status bar progress constantly flashing. We want to exclude generated gob files from being
-watched by selecting **Scope** text field. Click `...` button on the right of the **Scope** text field, in new window
-create new Local scope, name it (e.g. `Go project files`) and add `file:*.go||!file:*_gob.go` to **Pattern** text field.
+watched by selecting **Scope** text field of **File Watcher** dialog. Click `...` button on the right of the **Scope**
+text field, in new window create new **Local** scope, name it (e.g. `Go project files`) and add
+`file:*.go||!file:*_gob.go` to **Pattern** text field.
 
 This will do it. Now when you save Go file - `go generate` will be automatically run for your file.
