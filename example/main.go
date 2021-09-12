@@ -14,6 +14,7 @@ type Person struct { //+gob:constructor
 	zz                  func(a1, a2 int, a3 *string) interface{} //+gob:required +gob:getter
 	test                strings.Builder                          //+gob:required +gob:getter
 	test2               *ast.Scope
+	test3               *map[string]interface{} //+gob:required +gob:getter
 }
 
 // AnotherPerson is not marked with constructor flag and will not be processed

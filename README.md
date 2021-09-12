@@ -205,6 +205,6 @@ files, but also generated _gob.go files as well. It means that gob files will be
 annoy you with a little status bar progress constantly flashing. We want to exclude generated gob files from being
 watched by selecting **Scope** text field of **File Watcher** dialog. Click `...` button on the right of the **Scope**
 text field, in new window create new **Local** scope, name it (e.g. `Go project files`) and add
-`file:*.go||!file:*_gob.go` to **Pattern** text field.
+`file:*.go&&!file:*_gob.go` to **Pattern** text field.
 
 This will do it. Now when you save Go file - `go generate` will be automatically run for your file.
