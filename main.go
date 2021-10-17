@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"go/ast"
 	"go/parser"
@@ -12,6 +13,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"unicode"
 )
 
 type StructParser struct {
@@ -69,8 +71,15 @@ func newStructArgName(structName string, fieldName string) string {
 }
 
 func (bld *GobBuilder) appendBeginConstructorDef(structName string) {
-	bld.constructorDef.WriteString(fmt.Sprintf("// New%s creates new instance of %s struct\n", structName, structName))
-	bld.constructorDef.WriteString(fmt.Sprintf("func New%s(\n", structName))
+	var funcName = ""
+	firstChar := rune(structName[0])
+	if unicode.IsLower(firstChar) {
+		funcName = "new" + string(unicode.ToUpper(firstChar)) + structName[1:]
+	} else {
+		funcName = "New" + structName
+	}
+	bld.constructorDef.WriteString(fmt.Sprintf("// %s creates new instance of %s struct\n", funcName, structName))
+	bld.constructorDef.WriteString(fmt.Sprintf("func %s(\n", funcName))
 }
 
 func (bld *GobBuilder) appendBeginConstructorBody(structName string) {
@@ -147,24 +156,18 @@ func fileNameWithoutExt(fileName string) string {
 	return strings.TrimSuffix(fileName, filepath.Ext(fileName))
 }
 
-func outputFilename(inFilename string) string {
+func makeOutputFilename(inFilename string) string {
 	path := filepath.Dir(inFilename)
 	ext := filepath.Ext(inFilename)
 	outFilename := fmt.Sprintf("%s/%s_gob%s", path, fileNameWithoutExt(filepath.Base(inFilename)), ext)
 	return outFilename
 }
 
-func parseCommandLineArgs() (inFilename string, outFilename string) {
-	if len(os.Args) < 2 {
-		_, _ = fmt.Fprintln(os.Stderr, "Error: filename is required")
-		os.Exit(1)
-	}
-	inFilename = os.Args[1]
-	if _, err := os.Stat(inFilename); os.IsNotExist(err) {
-		_, _ = fmt.Fprintf(os.Stderr, "File %s does not exist\n", inFilename)
-		os.Exit(1)
-	}
-
+func parseCommandLineArgs() (
+	inFilename string,
+	outFilename string,
+	defaultTypes *string,
+) {
 	_, err := exec.LookPath("goimports")
 	if err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, "Error: \"goimports\" executable does not exist")
@@ -173,15 +176,57 @@ func parseCommandLineArgs() (inFilename string, outFilename string) {
 		os.Exit(1)
 	}
 
-	outFilename = outputFilename(inFilename)
+	//flag.StringVar()
+	inputFilePtr := flag.String("input", "filename", "go input file")
+	outputFilePtr := flag.String("output", "filename", "go output file (optional)")
+	defaultTypes = flag.String("default-types", "public", "parse event non-annotated "+
+		"struct types (\"all\" for public and private, \"public\" for public only)")
+
+	flag.Parse()
+	inFilename = *inputFilePtr
+
+	if !isFlagPassed("input") {
+		_, _ = fmt.Fprintln(os.Stderr, "Error: \"input\" flag must be specified")
+		os.Exit(1)
+	}
+	if _, err := os.Stat(inFilename); os.IsNotExist(err) {
+		_, _ = fmt.Fprintf(os.Stderr, "File %s does not exist\n", inFilename)
+		os.Exit(1)
+	}
+
+	if isFlagPassed("output") {
+		outFilename = *outputFilePtr
+	} else {
+		outFilename = makeOutputFilename(inFilename)
+	}
+
+	if isFlagPassed("default-types") {
+		if *defaultTypes != "all" && *defaultTypes != "public" {
+			_, _ = fmt.Fprintln(os.Stderr, "Error: \"default-types\" flag must be \"all\" or \"public\"")
+			os.Exit(1)
+		}
+	} else {
+		defaultTypes = nil
+	}
+
 	println("Input file: " + inFilename)
 	println("Output file: " + outFilename)
-	return
+	return inFilename, outFilename, defaultTypes
+}
+
+func isFlagPassed(name string) bool {
+	found := false
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == name {
+			found = true
+		}
+	})
+	return found
 }
 
 func main() {
 
-	inFilename, outFilename := parseCommandLineArgs()
+	inFilename, outFilename, defaultTypes := parseCommandLineArgs()
 	fileContent, err := ioutil.ReadFile(inFilename)
 	fset := token.NewFileSet()
 	astFile, err := parser.ParseFile(fset, inFilename, nil, parser.ParseComments)
@@ -205,12 +250,20 @@ func main() {
 		if !ok {
 			return true
 		}
+
+		structName := ts.Name.Name
 		if !sp.constructorRequired(st) {
-			return true
+			if defaultTypes == nil {
+				return true
+			}
+			if *defaultTypes == "public" {
+				if !unicode.IsUpper(rune(ts.Name.Name[0])) {
+					return true
+				}
+			}
 		}
 
-		fmt.Printf("Generate constructor for %s\n", ts.Name.Name)
-		structName := ts.Name.Name
+		fmt.Printf("Generate constructor for %s\n", structName)
 
 		for _, field := range st.Fields.List {
 			fieldTypeText := sp.fieldTypeText(field)

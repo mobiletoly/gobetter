@@ -29,8 +29,8 @@ var person = Person{
 
 This is all good unless you have a different places where you have to create a `Person` structure, then when you
 add new fields, it will become a challenge to scan through code to find all occurrences of creating Person. One of
-the suggestions you can find is to create a construction function with arguments representing required fields.
-In this case you can create and fill `Person` structure with `NewPerson()` constructor. Here is an example:
+the suggestions you can find is to create a constructor function with arguments representing required fields.
+In this case you can create and fill `Person` structure with `NewPerson()` function. Here is an example:
 
 ```
 func NewPerson(firstName string, lastName string, age int) Person {
@@ -49,66 +49,8 @@ need to be very careful when you move fields within the structure or add a new o
 passing wrong values. E.g. if you swap FirstName and LastName in Person structure then suddenly your call to `NewPerson` 
 will be resulting in FirstName being "Doe" and LastName being "Joe". Compiler does not help us here.
 
-The approach I would like to use is to create a simple struct wrapper for every required field, such as
-
-```
-// structures for arguments (you don't create them directly)
-
-type Person_FirstName_Arg struct {
-    Arg string
-}
-type Person_LastName_Arg struct {
-    Arg string
-}
-type Person_Age_Arg struct {
-    Arg int
-}
-
-// single-argument constructor for every argument structure (you pass it to main constructor)
-
-func Person_FirstName(arg string) Person_FirstName_Arg {
-    return Person_FirstNameArg{Arg: arg}
-}
-func Person_LastName(arg string) Person_LastName_Arg {
-    return Person_LastNameArg{Arg: arg}
-}
-func Person_Age(arg int) Person_Age_Arg {
-    return Person_AgeArg{Arg: arg}
-}
-
-```
-
-then constructor function is going to look like
-
-```
-func NewPerson(
-    argFirstName Person_FirstName_Arg,
-    argLastName Person_LastName_Arg,
-    argAge Person_Age_Arg,
-) Person {
-    return Person{
-        FirstName: argFirstName.Arg,
-        LastName: argLastName.Arg,
-        Age: argAge.Arg,
-    }
-}
-```
-
-Here is typical call to create a new instance of Person struct
-
-```
-person := NewPerson(
-    Person_FirstName("Joe"),
-    Person_LastName("Doe"),
-    Person_Age(40),
-)
-```
-
-This is it! Now we have required fields and compiler will guarantee (with compiler-time errors) that we pass
-parameters in correct order.
-
-But you don't want to do this work manually, especially if you have to deal with many large structures. That is why
-we have developed a tool called **gobetter** to generate all these structs and constructors for you.
+**gobetter** addresses this issue by creating constructor function for you and by wrapping each parameter in its own
+type. In this case compiler will raise an error if you missed a parameter or put it in a different order. 
 
 ### Pre-requisites
 
@@ -129,12 +71,12 @@ go get -u github.com/mobiletoly/gobetter
 
 ### Usage
 
-Tool is very easy to use. First you have to add `go:generate` comment into a file with a structures you want to create
-required parameters for, after that you can mark required fields with a special comment. E.g. this is how your 
-data structure that you use to serialize/deserialize JSON is going to look like
+Tool uses generation approach to create constructors with named arguments. First you have to add `go:generate` comment
+into a file with a structures you want to create  required parameters for, after that you can mark required fields
+with a special comment. E.g. this is how your data structure to serialize/deserialize JSON is going to look like:
 
 ```
-//go:generate gobetter $GOFILE
+//go:generate gobetter -input $GOFILE
 package main
 
 type Person struct { //+gob:constructor
@@ -145,29 +87,17 @@ type Person struct { //+gob:constructor
 }
 ```
 
-or if you want to use it with field tags (e.g. to serialize/deserialize JSON):
-
-```
-//go:generate gobetter $GOFILE
-package main
-
-type Person struct { //+gob:constructor
-	firstName   string `json:"first_name"`  //+gob:required, +gob:getter
-	lastName    string `json:"last_name"`   //+gob:required, +gob:getter
-	Age         int    `json:"age"`         //+gob:required
-	Description string `json:"description"`
-}
-```
+(you can add field tags e.g. `json:"age"` into your struct if you need)
 
 `+gob:constructor` comment serves as a flag and must be on the same line as struct (you can add more text to this
 comment but flag needs to be a separate word). It instructs gobetter to generate argument structures and constructor
-for this structure.
+for this structure. 
 
 `+gob:required` flag in comment hints gobetter that structure field is required and must be added to constructor.
 
 `+gob:getter` is to generate a getter for field, should be applied only for fields that start in lowercase (fields
 that are not accessible outside of a package). It will effectively make these fields read-only for callers outside
-of a package.
+a package.
 
 All you have to do now is to run `go generate` tool to generate go files that will be containing argument structures
 as well as constructors for your structures.
@@ -179,7 +109,7 @@ go generate ./...
 For example if you have a file in example package `example/main.go` then new file `example/main_gob.go` will be
 generated, and it will contain argument structures and constructors for structures from `main.go` file.
 
-Now you can enforce required parameters via call:
+Now you can build Person structure with a call:
 
 ```
 person := NewPerson(
@@ -208,3 +138,18 @@ text field, in new window create new **Local** scope, name it (e.g. `Go project 
 `file:*.go&&!file:*_gob.go` to **Pattern** text field.
 
 This will do it. Now when you save Go file - `go generate` will be automatically run for your file.
+
+### Gobetter generator customization
+
+**gobetter** generator has few switches allowing you a better control of generated output.
+
+`-input <input-file-name>` - input file name where to read structures from
+
+`-output <output-file-name>` - optional file name to save generated data into. if this switch is not specified
+then gobetter will create a filename with suffix `_gob.go` in the same directory where the input file resides.
+
+`-default-types all|public` - sometimes you don't want to annotate structures with *//+gob:constructor* or simply
+you don't have this option, because files with a structures could be auto-generated for you by some other tool.
+In this case you can invoke gobetter from some other file and specify with `-default-types` that you want to
+generate constructors for all struct types. `all` option will process all public and package-level structs while
+`public` will process only public (started with uppercase character) structures.

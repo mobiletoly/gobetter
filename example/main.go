@@ -1,4 +1,4 @@
-//go:generate gobetter $GOFILE
+//go:generate gobetter -input $GOFILE
 package example
 
 import (
@@ -18,7 +18,7 @@ type Person struct { //+gob:constructor
 }
 
 // AnotherPerson is not marked with constructor flag and will not be processed
-type AnotherPerson struct {
+type anotherPerson struct {
 	FirstName, LastName string //+gob:required
 	Age                 int    `json:"age"` //+gob:required
 }
