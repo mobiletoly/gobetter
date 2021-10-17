@@ -80,10 +80,10 @@ with a special comment. E.g. this is how your data structure to serialize/deseri
 package main
 
 type Person struct { //+gob:constructor
-	firstName   string  //+gob:required, +gob:getter
-	lastName    string  //+gob:required, +gob:getter
-	Age         int     //+gob:required
-	Description string
+	firstName   string  //+gob:getter
+	lastName    string  //+gob:getter
+	Age         int     
+	Description string  //+gob:optional
 }
 ```
 
@@ -93,7 +93,7 @@ type Person struct { //+gob:constructor
 comment but flag needs to be a separate word). It instructs gobetter to generate argument structures and constructor
 for this structure. 
 
-`+gob:required` flag in comment hints gobetter that structure field is required and must be added to constructor.
+`+gob:optional` flag in comment hints gobetter that structure field is option and should not be added to constructor.
 
 `+gob:getter` is to generate a getter for field, should be applied only for fields that start in lowercase (fields
 that are not accessible outside of a package). It will effectively make these fields read-only for callers outside
