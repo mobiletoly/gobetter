@@ -176,13 +176,17 @@ func parseCommandLineArgs() (
 		os.Exit(1)
 	}
 
-	//flag.StringVar()
 	inputFilePtr := flag.String("input", "filename", "go input file")
 	outputFilePtr := flag.String("output", "filename", "go output file (optional)")
 	defaultTypes = flag.String("default-types", "public", "parse event non-annotated "+
 		"struct types (\"all\" for public and private, \"public\" for public only)")
+	boolPtr := flag.Bool("print-version", true, "a bool")
 
 	flag.Parse()
+	if isFlagPassed("print-version") && *boolPtr {
+		println("gobetter version 0.1")
+	}
+
 	inFilename = *inputFilePtr
 
 	if !isFlagPassed("input") {
