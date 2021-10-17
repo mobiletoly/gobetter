@@ -1,4 +1,3 @@
-//go:generate gobetter -input $GOFILE
 package example
 
 import (
@@ -6,19 +5,19 @@ import (
 	"strings"
 )
 
-type Person struct { //+gob:constructor
-	firstName, lastName string                                   //+gob:required +gob:getter
-	Age                 int                                      `json:"age"` //+gob:required
-	Description         *string                                  `json:"description"`
+type Person struct {
+	firstName, lastName string                                   //+gob:getter
+	Age                 int                                      `json:"age"`
+	Description         *string                                  `json:"description"` //+gob:optional
 	Tags                []int                                    `json:"tags"`
-	zz                  func(a1, a2 int, a3 *string) interface{} //+gob:required +gob:getter
-	test                strings.Builder                          //+gob:required +gob:getter
-	test2               *ast.Scope
-	test3               *map[string]interface{} //+gob:required +gob:getter
+	zz                  func(a1, a2 int, a3 *string) interface{} //+gob:getter
+	test                strings.Builder                          //+gob:getter
+	test2               *ast.Scope                               //+gob:getter
+	test3               *map[string]interface{}
 }
 
 // AnotherPerson is not marked with constructor flag and will not be processed
 type anotherPerson struct {
-	FirstName, LastName string //+gob:required
-	Age                 int    `json:"age"` //+gob:required
+	FirstName, LastName string
+	Age                 int `json:"age"`
 }

@@ -21,7 +21,7 @@ type StructParser struct {
 	fileContent        []byte
 	whitespaceRegexp   *regexp.Regexp
 	constructorRegexp  *regexp.Regexp
-	flagRequiredRegexp *regexp.Regexp
+	flagOptionalRegexp *regexp.Regexp
 	flagGetterRegexp   *regexp.Regexp
 }
 
@@ -125,7 +125,7 @@ func NewStructParser(fileSet *token.FileSet, fileContent []byte) StructParser {
 		fileContent:        fileContent,
 		whitespaceRegexp:   regexp.MustCompile(`\s+`),
 		constructorRegexp:  regexp.MustCompile("\\b+gob:constructor\\b"),
-		flagRequiredRegexp: regexp.MustCompile("\\b+gob:required\\b"),
+		flagOptionalRegexp: regexp.MustCompile("\\b+gob:optional\\b"),
 		flagGetterRegexp:   regexp.MustCompile("\\b+gob:getter\\b"),
 	}
 }
@@ -136,8 +136,8 @@ func (sp *StructParser) fieldTypeText(field *ast.Field) string {
 	return sp.whitespaceRegexp.ReplaceAllString(string(sp.fileContent[begin:end]), " ")
 }
 
-func (sp *StructParser) fieldRequired(field *ast.Field) bool {
-	return sp.flagRequiredRegexp.MatchString(field.Comment.Text())
+func (sp *StructParser) fieldOptional(field *ast.Field) bool {
+	return sp.flagOptionalRegexp.MatchString(field.Comment.Text())
 }
 
 func (sp *StructParser) fieldGetter(field *ast.Field) bool {
@@ -268,7 +268,7 @@ func main() {
 		for _, field := range st.Fields.List {
 			fieldTypeText := sp.fieldTypeText(field)
 			for _, fieldName := range field.Names {
-				if sp.fieldRequired(field) {
+				if !sp.fieldOptional(field) {
 					structArgName := gobBld.appendArgStruct(structName, fieldName.Name, fieldTypeText)
 					if gobBld.constructorDef.Len() == 0 {
 						gobBld.appendBeginConstructorDef(structName)
