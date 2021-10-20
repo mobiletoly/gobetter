@@ -81,7 +81,7 @@ func (bld *GobBuilder) appendArgStructConstructor(structName string, fieldName s
 }
 
 func newStructArgName(structName string, fieldName string, visibility Visibility) string {
-	return convertStructNameAccordingToVisibility(structName, visibility) + "_" + strings.Title(fieldName) + "_Arg"
+	return convertStructNameAccordingToVisibility(structName, visibility) + "_" + strings.Title(fieldName) + "_ArgWrapper"
 }
 
 func convertStructNameAccordingToVisibility(structName string, visibility Visibility) string {
@@ -106,8 +106,8 @@ func (bld *GobBuilder) appendBeginConstructorDef(structName string, structFlags 
 	}
 	bld.constructorValueDef.WriteString(fmt.Sprintf("// %s creates new instance of %s struct\n", funcName, structName))
 	bld.constructorValueDef.WriteString(fmt.Sprintf("func %s(\n", funcName))
-	bld.constructorPtrDef.WriteString(fmt.Sprintf("// %sPtr returns pointer to new instance of %s struct\n", funcName, structName))
-	bld.constructorPtrDef.WriteString(fmt.Sprintf("func %sPtr(\n", funcName))
+	bld.constructorPtrDef.WriteString(fmt.Sprintf("// %s_Ptr returns pointer to new instance of %s struct\n", funcName, structName))
+	bld.constructorPtrDef.WriteString(fmt.Sprintf("func %s_Ptr(\n", funcName))
 }
 
 func (bld *GobBuilder) appendBeginConstructorBody(structName string) {
