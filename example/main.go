@@ -5,10 +5,10 @@ import (
 	"strings"
 )
 
-type Person struct {
-	firstName, lastName string                                   //+gob:getter
+type Person struct { //+gob:Constructor
+	firstName, lastName *string                                  //+gob:getter
 	Age                 int                                      `json:"age"`
-	Description         *string                                  `json:"description"` //+gob:optional
+	Description         *string                                  `json:"description"` //+gob:_
 	Tags                []int                                    `json:"tags"`
 	zz                  func(a1, a2 int, a3 *string) interface{} //+gob:getter
 	test                strings.Builder                          //+gob:getter
@@ -17,7 +17,8 @@ type Person struct {
 }
 
 // AnotherPerson is not marked with constructor flag and will not be processed
-type anotherPerson struct {
+type anotherPerson struct { //+gob:constructor
 	FirstName, LastName string
 	Age                 int `json:"age"`
+	result              int //+gob:getter
 }

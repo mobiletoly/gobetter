@@ -41,13 +41,13 @@ func parseCommandLineArgs() (
 
 	inputFilePtr := flag.String("input", "filename", "go input file")
 	outputFilePtr := flag.String("output", "filename", "go output file (optional)")
-	defaultTypes = flag.String("default-types", "public", "parse event non-annotated "+
-		"struct types (\"all\" for public and private, \"public\" for public only)")
+	defaultTypes = flag.String("generate-for", "exported", "parse even non-annotated "+
+		"struct types (\"all\" for exported and package-level, \"exported\" for exported only)")
 	boolPtr := flag.Bool("print-version", true, "a bool")
 
 	flag.Parse()
 	if isFlagPassed("print-version") && *boolPtr {
-		println("gobetter version 0.1")
+		println("gobetter version 0.2")
 	}
 
 	inFilename = *inputFilePtr
@@ -67,9 +67,9 @@ func parseCommandLineArgs() (
 		outFilename = makeOutputFilename(inFilename)
 	}
 
-	if isFlagPassed("default-types") {
-		if *defaultTypes != "all" && *defaultTypes != "public" {
-			_, _ = fmt.Fprintln(os.Stderr, "Error: \"default-types\" flag must be \"all\" or \"public\"")
+	if isFlagPassed("generate-for") {
+		if *defaultTypes != "all" && *defaultTypes != "exported" {
+			_, _ = fmt.Fprintln(os.Stderr, "Error: \"generate-for\" flag must be \"all\" or \"exported\"")
 			os.Exit(1)
 		}
 	} else {
@@ -119,29 +119,32 @@ func main() {
 		}
 
 		structName := ts.Name.Name
-		if !sp.constructorRequired(st) {
+		processStruct, visibility := sp.constructorVisibility(st)
+		if !processStruct {
 			if defaultTypes == nil {
 				return true
 			}
-			if *defaultTypes == "public" {
+			if *defaultTypes == "exported" {
 				if !unicode.IsUpper(rune(ts.Name.Name[0])) {
 					return true
 				}
 			}
 		}
 
-		fmt.Printf("Generate constructor for %s\n", structName)
+		fmt.Printf("Process structure %s\n", structName)
 
 		for _, field := range st.Fields.List {
 			fieldTypeText := sp.fieldTypeText(field)
 			for _, fieldName := range field.Names {
-				if !sp.fieldOptional(field) {
-					structArgName := gobBld.appendArgStruct(structName, fieldName.Name, fieldTypeText)
-					if gobBld.constructorDef.Len() == 0 {
-						gobBld.appendBeginConstructorDef(structName)
-						gobBld.appendBeginConstructorBody(structName)
+				if visibility != NoVisibility {
+					if !sp.fieldOptional(field) {
+						structArgName := gobBld.appendArgStruct(structName, fieldName.Name, fieldTypeText, visibility)
+						if gobBld.constructorValueDef.Len() == 0 {
+							gobBld.appendBeginConstructorDef(structName, visibility)
+							gobBld.appendBeginConstructorBody(structName)
+						}
+						gobBld.appendConstructorArg(fieldName.Name, structArgName)
 					}
-					gobBld.appendConstructorArg(fieldName.Name, structArgName)
 				}
 				if sp.fieldGetter(field) {
 					gobBld.appendGetter(structName, fieldName.Name, fieldTypeText)

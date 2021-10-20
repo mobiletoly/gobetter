@@ -79,25 +79,29 @@ with a special comment. E.g. this is how your data structure to serialize/deseri
 //go:generate gobetter -input $GOFILE
 package main
 
-type Person struct { //+gob:constructor
+type Person struct { //+gob:Constructor
 	firstName   string  //+gob:getter
 	lastName    string  //+gob:getter
 	Age         int     
-	Description string  //+gob:optional
+	Description string  //+gob:_
 }
 ```
 
 (you can add field tags e.g. `json:"age"` into your struct if you need)
 
-`+gob:constructor` comment serves as a flag and must be on the same line as struct (you can add more text to this
-comment but flag needs to be a separate word). It instructs gobetter to generate argument structures and constructor
-for this structure. 
+- `+gob:Constructor` comment serves as a flag and must be on the same line as struct (you can add more text to this
+comment but flag needs to be a separate word). It instructs gobetter to generate argument structures and
+constructor for this structure. Please read below to find out why "Constructor" starts with upper-cased "C".
 
-`+gob:optional` flag in comment hints gobetter that structure field is option and should not be added to constructor.
 
-`+gob:getter` is to generate a getter for field, should be applied only for fields that start in lowercase (fields
+- `//+gob:getter` is to generate a getter for field, should be applied only for fields that start in lowercase (fields
 that are not accessible outside of a package). It will effectively make these fields read-only for callers outside
 a package.
+
+
+- `//+gob:_` flag in comment hints gobetter that structure field is option and should not be added to
+constructor.
+
 
 All you have to do now is to run `go generate` tool to generate go files that will be containing argument structures
 as well as constructors for your structures.
@@ -120,6 +124,24 @@ person := NewPerson(
 // optional parameters
 person.Description = "some description"
 ```
+
+### Constructor options
+
+Unless you specify otherwise with comnand-line flags - gobetter only processes structures marked with `//+gob:`
+comment annotations, and you have few options to choose from:
+
+- `//+gob:Constructor` - generate upper-cased exported constructor in form of **NewClassName**. This flag is
+  honored only if class itself is exported (started with uppercase character), otherwise package-level lower-cased
+  constructor **newClassName** will be generated;
+
+
+- `//+gob:constructor` - generate package-level constructor in form of **newClassName** even for exported classes;
+
+
+- `//+gob:_` - no constructor is generated. This flag is useful if you don't want to generate
+  constructor but still want for gobetter to process another fields, such as marked with `gob:getter` to generate
+  getters;
+
 
 ### Integration with IntelliJ
 
@@ -148,8 +170,21 @@ This will do it. Now when you save Go file - `go generate` will be automatically
 `-output <output-file-name>` - optional file name to save generated data into. if this switch is not specified
 then gobetter will create a filename with suffix `_gob.go` in the same directory where the input file resides.
 
-`-default-types all|public` - sometimes you don't want to annotate structures with *//+gob:constructor* or simply
-you don't have this option, because files with a structures could be auto-generated for you by some other tool.
-In this case you can invoke gobetter from some other file and specify with `-default-types` that you want to
-generate constructors for all struct types. `all` option will process all public and package-level structs while
-`public` will process only public (started with uppercase character) structures.
+`-generate-for all|exported` - sometimes you don't want to annotate structures with *//+gob:* constructor
+annotation, or you don't have this option, because files with a structures could be auto-generated for you by
+some other tool. In this case you can invoke gobetter from some other file and pass `-generate-for` flag to
+specify that you want to generate constructors for all struct types. `all` option will process all exported
+and package-level structs while `exported` will process only exported (started with uppercase character)
+structures.
+
+Example:
+
+```
+package main
+
+//go:generate gobetter -input=./internal/graph/model/models_gen.go -default-types=all
+
+import (
+    ...
+)
+```
