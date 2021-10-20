@@ -29,7 +29,9 @@ func makeOutputFilename(inFilename string) string {
 func parseCommandLineArgs() (
 	inFilename string,
 	outFilename string,
-	defaultTypes *string,
+	generateFor *string,
+	usePtrReceiver bool,
+	constructorVisibility string,
 ) {
 	_, err := exec.LookPath("goimports")
 	if err != nil {
@@ -39,14 +41,30 @@ func parseCommandLineArgs() (
 		os.Exit(1)
 	}
 
-	inputFilePtr := flag.String("input", "filename", "go input file")
-	outputFilePtr := flag.String("output", "filename", "go output file (optional)")
-	defaultTypes = flag.String("generate-for", "exported", "parse even non-annotated "+
-		"struct types (\"all\" for exported and package-level, \"exported\" for exported only)")
-	boolPtr := flag.Bool("print-version", true, "a bool")
+	inputFilePtr := flag.String("input", "", "go input file path")
+	outputFilePtr := flag.String("output", "", "go output file path (optional)")
+	generateForPtr := flag.String("generate-for", "annotated",
+		`allows parsing of non-annotated struct types:
+|  all       - process exported and package-level classes
+|  exported  - process exported classes only
+|  annotated - process specifically annotated class only
+`)
+	receiverTypePtr := flag.String("receiver", "value",
+		`specify function receiver type:
+|  value     - receiver must be a value type, e.g. { func (v *Class) Name }
+|  pointer   - receiver must be a pointer type, e.g. { func (v Class) Name }
+`)
+	constructorVisibilityPtr := flag.String("constructor", "exported",
+		`generate exported or package-level constructors:
+|  exported  - exported (upper-cased) constructors will be created
+|  package   - package-level (lower-cased) constructors will be created
+|  none      - no constructors will be created
+`)
+	//constructorScopePtr := flag.String("constructor", "exported", "{exported|package|none}")
+	flag.Bool("print-version", false, "print current version")
 
 	flag.Parse()
-	if isFlagPassed("print-version") && *boolPtr {
+	if isFlagPassed("print-version") {
 		println("gobetter version 0.3")
 	}
 
@@ -67,18 +85,34 @@ func parseCommandLineArgs() (
 		outFilename = makeOutputFilename(inFilename)
 	}
 
-	if isFlagPassed("generate-for") {
-		if *defaultTypes != "all" && *defaultTypes != "exported" {
-			_, _ = fmt.Fprintln(os.Stderr, "Error: \"generate-for\" flag must be \"all\" or \"exported\"")
-			os.Exit(1)
-		}
+	if *generateForPtr == "all" || *generateForPtr == "exported" {
+		generateFor = generateForPtr
+	} else if *generateForPtr == "annotated" {
+		generateFor = nil
 	} else {
-		defaultTypes = nil
+		_, _ = fmt.Fprintln(os.Stderr, "Error: \"generate-for\" flag must be \"all\", \"exported\", or \"annotated\"")
+		os.Exit(1)
 	}
 
-	println("Input file: " + inFilename)
-	println("Output file: " + outFilename)
-	return inFilename, outFilename, defaultTypes
+	if *receiverTypePtr == "pointer" {
+		usePtrReceiver = true
+	} else if *receiverTypePtr == "value" {
+		usePtrReceiver = false
+	} else {
+		_, _ = fmt.Fprintln(os.Stderr, "Error: \"receiver\" flag must be \"pointer\" or \"value\"")
+		os.Exit(1)
+	}
+
+	if *constructorVisibilityPtr == "exported" || *constructorVisibilityPtr == "package" || *constructorVisibilityPtr == "none" {
+		constructorVisibility = *constructorVisibilityPtr
+	} else {
+		_, _ = fmt.Fprintln(os.Stderr, "Error: \"constructor\" flag must be \"exported\", \"package\", or \"none\"")
+		os.Exit(1)
+	}
+
+	println("Input file:", inFilename)
+	println("Output file:", outFilename)
+	return
 }
 
 func isFlagPassed(name string) bool {
@@ -93,7 +127,7 @@ func isFlagPassed(name string) bool {
 
 func main() {
 
-	inFilename, outFilename, defaultTypes := parseCommandLineArgs()
+	inFilename, outFilename, defaultTypes, usePtrReceiver, constructorVisibility := parseCommandLineArgs()
 	fileContent, err := ioutil.ReadFile(inFilename)
 	fset := token.NewFileSet()
 	astFile, err := parser.ParseFile(fset, inFilename, nil, parser.ParseComments)
@@ -119,8 +153,8 @@ func main() {
 		}
 
 		structName := ts.Name.Name
-		processStruct, visibility := sp.constructorVisibility(st)
-		if !processStruct {
+		structFlags := sp.constructorFlags(st)
+		if !structFlags.ProcessStruct {
 			if defaultTypes == nil {
 				return true
 			}
@@ -129,6 +163,15 @@ func main() {
 					return true
 				}
 			}
+			structFlags.ProcessStruct = true
+			structFlags.PtrReceiver = usePtrReceiver
+			if constructorVisibility == "exported" {
+				structFlags.Visibility = ExportedVisibility
+			} else if constructorVisibility == "package" {
+				structFlags.Visibility = PackageLevelVisibility
+			} else {
+				structFlags.Visibility = NoVisibility
+			}
 		}
 
 		fmt.Printf("Process structure %s\n", structName)
@@ -136,18 +179,18 @@ func main() {
 		for _, field := range st.Fields.List {
 			fieldTypeText := sp.fieldTypeText(field)
 			for _, fieldName := range field.Names {
-				if visibility != NoVisibility {
+				if structFlags.Visibility != NoVisibility {
 					if !sp.fieldOptional(field) {
-						structArgName := gobBld.appendArgStruct(structName, fieldName.Name, fieldTypeText, visibility)
+						structArgName := gobBld.appendArgStruct(structName, fieldName.Name, fieldTypeText, structFlags)
 						if gobBld.constructorValueDef.Len() == 0 {
-							gobBld.appendBeginConstructorDef(structName, visibility)
+							gobBld.appendBeginConstructorDef(structName, structFlags)
 							gobBld.appendBeginConstructorBody(structName)
 						}
 						gobBld.appendConstructorArg(fieldName.Name, structArgName)
 					}
 				}
 				if sp.fieldGetter(field) {
-					gobBld.appendGetter(structName, fieldName.Name, fieldTypeText)
+					gobBld.appendGetter(structName, fieldName.Name, fieldTypeText, structFlags)
 				}
 			}
 		}

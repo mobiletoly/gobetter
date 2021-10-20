@@ -142,6 +142,10 @@ comment annotations, and you have few options to choose from:
   constructor but still want for gobetter to process another fields, such as marked with `gob:getter` to generate
   getters;
 
+- `//+gob:ptr` - specifies that generated getter functions (if any) should be operated on pointer receivers
+  instead of value receiver. It means that `func (v *Person) FirstName() string` function will be generated instead
+  of default `func (v Person) FirstName() string`
+
 
 ### Integration with IntelliJ
 
@@ -170,19 +174,27 @@ This will do it. Now when you save Go file - `go generate` will be automatically
 `-output <output-file-name>` - optional file name to save generated data into. if this switch is not specified
 then gobetter will create a filename with suffix `_gob.go` in the same directory where the input file resides.
 
-`-generate-for all|exported` - sometimes you don't want to annotate structures with *//+gob:* constructor
-annotation, or you don't have this option, because files with a structures could be auto-generated for you by
-some other tool. In this case you can invoke gobetter from some other file and pass `-generate-for` flag to
-specify that you want to generate constructors for all struct types. `all` option will process all exported
-and package-level structs while `exported` will process only exported (started with uppercase character)
-structures.
+`-generate-for all|exported|annotated` - sometimes you don't want to annotate structures with *//+gob:*
+constructor annotation, or you don't have this option, because files with a structures could be
+auto-generated for you by some other tool. In this case you can invoke gobetter from some other file
+and pass **-generate-for** flag to specify that you want to process structures that don't have
+annotation comments. **all** value will process all exported and package-level structs while
+**exported** will process only exported (started with uppercase character) structures. **annotated**
+value disables automatic processing of structures (this is default behavior) and requires structure
+annotation comments.
+
+`-constructor exported|package|none` - this flag makes sense only for structures processed by
+**-generate-for** flag. **exported** value enforces creation of exported struct constructors (for
+package-level structures package-level constructors will be generated). **package** value enforces
+creation of package-level constructors for all structures. **none** means no constructorы will be
+provided (but gobetter will process structure in order to generate getters if necessary).
 
 Example:
 
 ```
 package main
 
-//go:generate gobetter -input=./internal/graph/model/models_gen.go -default-types=all
+//go:generate gobetter -input=./internal/graph/model/models_gen.go -generate-for=exported -receiver=pointer -constructor=package
 
 import (
     ...
