@@ -60,12 +60,11 @@ func parseCommandLineArgs() (
 |  package   - package-level (lower-cased) constructors will be created
 |  none      - no constructors will be created
 `)
-	//constructorScopePtr := flag.String("constructor", "exported", "{exported|package|none}")
 	flag.Bool("print-version", false, "print current version")
 
 	flag.Parse()
 	if isFlagPassed("print-version") {
-		println("gobetter version 0.5")
+		println("gobetter version 0.7")
 	}
 
 	inFilename = *inputFilePtr
