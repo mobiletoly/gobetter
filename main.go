@@ -190,7 +190,9 @@ func main() {
 					}
 				}
 				if sp.fieldGetter(field) {
-					gobBld.appendGetter(structName, fieldName.Name, fieldTypeText, structFlags)
+					gobBld.appendGetter(structName, fieldName.Name, fieldTypeText, structFlags, false)
+				} else if sp.fieldUppercaseGetter(field) {
+					gobBld.appendGetter(structName, fieldName.Name, fieldTypeText, structFlags, true)
 				}
 			}
 		}

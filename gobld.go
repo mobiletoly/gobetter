@@ -27,6 +27,7 @@ type StructParser struct {
 	flagReceiverPtrRegexp     *regexp.Regexp
 	flagOptionalRegexp        *regexp.Regexp
 	flagGetterRegexp          *regexp.Regexp
+	flagUppercaseGetterRegexp *regexp.Regexp
 }
 
 type GobBuilder struct {
@@ -41,8 +42,8 @@ type GobBuilder struct {
 
 type StructFlags struct {
 	ProcessStruct bool
-	Visibility    Visibility
 	PtrReceiver   bool
+	Visibility    Visibility
 }
 
 func (bld *GobBuilder) appendPackage() {
@@ -87,9 +88,8 @@ func newStructArgName(structName string, fieldName string, visibility Visibility
 func convertStructNameAccordingToVisibility(structName string, visibility Visibility) string {
 	if visibility == PackageLevelVisibility {
 		return untitle(structName)
-	} else {
-		return structName
 	}
+	return structName
 }
 
 func untitle(value string) string {
@@ -97,7 +97,7 @@ func untitle(value string) string {
 }
 
 func (bld *GobBuilder) appendBeginConstructorDef(structName string, structFlags StructFlags) {
-	var funcName = ""
+	var funcName string
 	firstChar := rune(structName[0])
 	if unicode.IsLower(firstChar) || structFlags.Visibility == PackageLevelVisibility {
 		funcName = "new" + strings.Title(structName)
@@ -125,14 +125,22 @@ func (bld *GobBuilder) appendConstructorArg(fieldName string, structArgName stri
 	bld.constructorPtrBody.WriteString(value)
 }
 
-func (bld *GobBuilder) appendGetter(structName string, fieldName string, fieldType string, flags StructFlags) {
+func (bld *GobBuilder) appendGetter(
+	structName string, fieldName string, fieldType string, flags StructFlags, allUppercase bool,
+) {
 	ptr := ""
 	if flags.PtrReceiver {
 		ptr = "*"
 	}
-	bld.common.WriteString(fmt.Sprintf("func (v %s%s) %s() %s {\n", ptr, structName, strings.Title(fieldName), fieldType))
+	var addedFieldName string
+	if allUppercase {
+		addedFieldName = strings.ToUpper(fieldName)
+	} else {
+		addedFieldName = strings.Title(fieldName)
+	}
+	bld.common.WriteString(fmt.Sprintf("func (v %s%s) %s() %s {\n", ptr, structName, addedFieldName, fieldType))
 	bld.common.WriteString(fmt.Sprintf("\treturn v.%s\n", fieldName))
-	bld.common.WriteString(fmt.Sprint("}\n\n"))
+	bld.common.WriteString("}\n\n")
 }
 
 func (bld *GobBuilder) Build() string {
@@ -170,12 +178,13 @@ func NewStructParser(fileSet *token.FileSet, fileContent []byte) StructParser {
 		fileSet:                   fileSet,
 		fileContent:               fileContent,
 		whitespaceRegexp:          regexp.MustCompile(`\s+`),
-		constructorExportedRegexp: regexp.MustCompile("\\b+gob:Constructor\\b"),
-		constructorPackageRegexp:  regexp.MustCompile("\\b+gob:constructor\\b"),
-		constructorNoRegexp:       regexp.MustCompile("\\b+gob:_\\b"),
-		flagReceiverPtrRegexp:     regexp.MustCompile("\\b+gob:ptr\\b"),
-		flagOptionalRegexp:        regexp.MustCompile("\\b+gob:_\\b"),
-		flagGetterRegexp:          regexp.MustCompile("\\b+gob:getter\\b"),
+		constructorExportedRegexp: regexp.MustCompile(`\b+gob:Constructor\b`),
+		constructorPackageRegexp:  regexp.MustCompile(`\b+gob:constructor\b`),
+		constructorNoRegexp:       regexp.MustCompile(`\b+gob:_\b`),
+		flagReceiverPtrRegexp:     regexp.MustCompile(`\b+gob:ptr\b`),
+		flagOptionalRegexp:        regexp.MustCompile(`\b+gob:_\b`),
+		flagGetterRegexp:          regexp.MustCompile(`\b+gob:getter\b`),
+		flagUppercaseGetterRegexp: regexp.MustCompile(`\b+gob:GETTER\b`),
 	}
 }
 
@@ -193,6 +202,10 @@ func (sp *StructParser) fieldGetter(field *ast.Field) bool {
 	return sp.flagGetterRegexp.MatchString(field.Comment.Text())
 }
 
+func (sp *StructParser) fieldUppercaseGetter(field *ast.Field) bool {
+	return sp.flagUppercaseGetterRegexp.MatchString(field.Comment.Text())
+}
+
 func (sp *StructParser) constructorFlags(st *ast.StructType) StructFlags {
 	begin := st.Struct
 	endLine := sp.fileSet.File(begin).Line(begin) + 1
@@ -200,8 +213,8 @@ func (sp *StructParser) constructorFlags(st *ast.StructType) StructFlags {
 	result := string(sp.fileContent[sp.fileSet.Position(begin).Offset:sp.fileSet.Position(end).Offset])
 	flags := StructFlags{
 		ProcessStruct: false,
-		Visibility:    ExportedVisibility,
 		PtrReceiver:   false,
+		Visibility:    ExportedVisibility,
 	}
 	if sp.constructorPackageRegexp.MatchString(result) {
 		flags.ProcessStruct = true

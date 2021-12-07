@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-type Person struct {
+type Person struct { //+gob:constructor
 	firstName, lastName *string                                  //+gob:getter
 	Age                 int                                      `json:"age"`
 	Description         *string                                  `json:"description"` //+gob:_
@@ -14,6 +14,7 @@ type Person struct {
 	test                strings.Builder                          //+gob:getter
 	test2               *ast.Scope                               //+gob:getter
 	test3               *map[string]interface{}
+	xml                 *string //+gob:GETTER
 
 	anotherPerson *anotherPerson
 }
