@@ -27,7 +27,7 @@ type StructParser struct {
 	flagReceiverPtrRegexp     *regexp.Regexp
 	flagOptionalRegexp        *regexp.Regexp
 	flagGetterRegexp          *regexp.Regexp
-	flagUppercaseGetterRegexp *regexp.Regexp
+	flagAcronymRegex          *regexp.Regexp
 }
 
 type GobBuilder struct {
@@ -59,30 +59,47 @@ func (bld *GobBuilder) appendImports() {
 	bld.common.WriteString(")\n\n")
 }
 
-func (bld *GobBuilder) appendArgStruct(structName string, fieldName string, fieldType string, structFlags StructFlags) (structArgName string) {
-	structArgName = newStructArgName(structName, fieldName, structFlags.Visibility)
+func (bld *GobBuilder) appendArgStruct(
+	structName string, fieldName string, fieldType string, structFlags StructFlags, acronym bool,
+) (structArgName string) {
+	var visibleFieldName string
+	if acronym {
+		visibleFieldName = strings.ToUpper(fieldName)
+	} else {
+		visibleFieldName = strings.Title(fieldName)
+	}
+	visibleStructName := convertStructNameAccordingToVisibility(structName, structFlags.Visibility)
+	structArgName = newStructArgName(structName, fieldName, structFlags.Visibility, acronym)
 	bld.common.WriteString(fmt.Sprintf("// %s represents field %s of struct %s\n", structArgName, fieldName, structName))
 	bld.common.WriteString(fmt.Sprintf("type %s struct {\n", structArgName))
 	bld.common.WriteString(fmt.Sprintf("\tArg %s\n}\n", fieldType))
-	bld.common.WriteString(fmt.Sprintf("// %s%s creates argument for field %s\n", structName, strings.Title(fieldName), fieldName))
+	bld.common.WriteString(fmt.Sprintf("// %s%s creates argument for field %s\n", visibleStructName, strings.Title(fieldName), fieldName))
 	bld.common.WriteString(fmt.Sprintf("func %s_%s(arg %s) %s {\n",
-		convertStructNameAccordingToVisibility(structName, structFlags.Visibility),
-		strings.Title(fieldName),
+		visibleStructName,
+		visibleFieldName,
 		fieldType, structArgName))
 	bld.common.WriteString(fmt.Sprintf("\treturn %s{Arg: arg}\n}\n\n", structArgName))
 	return
 }
 
-func (bld *GobBuilder) appendArgStructConstructor(structName string, fieldName string, fieldType string, visibility Visibility) (structArgName string) {
-	structArgName = newStructArgName(structName, fieldName, visibility)
+func (bld *GobBuilder) appendArgStructConstructor(
+	structName string, fieldName string, fieldType string, visibility Visibility, acronym bool,
+) (structArgName string) {
+	structArgName = newStructArgName(structName, fieldName, visibility, acronym)
 	bld.common.WriteString(fmt.Sprintf("func %s%s(arg %s) %s {\n", structName, fieldName,
 		fieldType, structArgName))
 	bld.common.WriteString(fmt.Sprintf("\treturn %s{Arg: arg}\n}\n\n", structArgName))
 	return
 }
 
-func newStructArgName(structName string, fieldName string, visibility Visibility) string {
-	return convertStructNameAccordingToVisibility(structName, visibility) + "_" + strings.Title(fieldName) + "_ArgWrapper"
+func newStructArgName(structName string, fieldName string, visibility Visibility, acronym bool) string {
+	var title string
+	if acronym {
+		title = strings.ToUpper(fieldName)
+	} else {
+		title = strings.Title(fieldName)
+	}
+	return convertStructNameAccordingToVisibility(structName, visibility) + "_" + title + "_ArgWrapper"
 }
 
 func convertStructNameAccordingToVisibility(structName string, visibility Visibility) string {
@@ -115,8 +132,14 @@ func (bld *GobBuilder) appendBeginConstructorBody(structName string) {
 	bld.constructorPtrBody.WriteString(fmt.Sprintf("\treturn &%s{\n", structName))
 }
 
-func (bld *GobBuilder) appendConstructorArg(fieldName string, structArgName string) {
-	argName := "arg" + strings.Title(fieldName)
+func (bld *GobBuilder) appendConstructorArg(fieldName string, structArgName string, acronym bool) {
+	var visibleFieldName string
+	if acronym {
+		visibleFieldName = strings.ToUpper(fieldName)
+	} else {
+		visibleFieldName = strings.Title(fieldName)
+	}
+	argName := "arg" + visibleFieldName
 	def := fmt.Sprintf("\t%s %s,\n", argName, structArgName)
 	value := fmt.Sprintf("\t\t%s: %s.Arg,\n", fieldName, argName)
 	bld.constructorValueDef.WriteString(def)
@@ -126,14 +149,14 @@ func (bld *GobBuilder) appendConstructorArg(fieldName string, structArgName stri
 }
 
 func (bld *GobBuilder) appendGetter(
-	structName string, fieldName string, fieldType string, flags StructFlags, allUppercase bool,
+	structName string, fieldName string, fieldType string, flags StructFlags, acronym bool,
 ) {
 	ptr := ""
 	if flags.PtrReceiver {
 		ptr = "*"
 	}
 	var addedFieldName string
-	if allUppercase {
+	if acronym {
 		addedFieldName = strings.ToUpper(fieldName)
 	} else {
 		addedFieldName = strings.Title(fieldName)
@@ -184,7 +207,7 @@ func NewStructParser(fileSet *token.FileSet, fileContent []byte) StructParser {
 		flagReceiverPtrRegexp:     regexp.MustCompile(`\b+gob:ptr\b`),
 		flagOptionalRegexp:        regexp.MustCompile(`\b+gob:_\b`),
 		flagGetterRegexp:          regexp.MustCompile(`\b+gob:getter\b`),
-		flagUppercaseGetterRegexp: regexp.MustCompile(`\b+gob:GETTER\b`),
+		flagAcronymRegex:          regexp.MustCompile(`\b+gob:acronym\b`),
 	}
 }
 
@@ -202,8 +225,8 @@ func (sp *StructParser) fieldGetter(field *ast.Field) bool {
 	return sp.flagGetterRegexp.MatchString(field.Comment.Text())
 }
 
-func (sp *StructParser) fieldUppercaseGetter(field *ast.Field) bool {
-	return sp.flagUppercaseGetterRegexp.MatchString(field.Comment.Text())
+func (sp *StructParser) fieldAcronym(field *ast.Field) bool {
+	return sp.flagAcronymRegex.MatchString(field.Comment.Text())
 }
 
 func (sp *StructParser) constructorFlags(st *ast.StructType) StructFlags {

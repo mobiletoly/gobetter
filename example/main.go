@@ -14,9 +14,8 @@ type Person struct { //+gob:constructor
 	test                strings.Builder                          //+gob:getter
 	test2               *ast.Scope                               //+gob:getter
 	test3               *map[string]interface{}
-	xml                 *string //+gob:GETTER
-
-	anotherPerson *anotherPerson
+	xml                 *string //+gob:getter +gob:acronym
+	anotherPerson       *anotherPerson
 }
 
 type fixedPerson struct {

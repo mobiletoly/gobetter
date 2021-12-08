@@ -64,7 +64,7 @@ func parseCommandLineArgs() (
 
 	flag.Parse()
 	if isFlagPassed("print-version") {
-		println("gobetter version 0.7")
+		println("gobetter version 0.8")
 	}
 
 	inFilename = *inputFilePtr
@@ -93,11 +93,12 @@ func parseCommandLineArgs() (
 		os.Exit(1)
 	}
 
-	if *receiverTypePtr == "pointer" {
+	switch {
+	case *receiverTypePtr == "pointer":
 		usePtrReceiver = true
-	} else if *receiverTypePtr == "value" {
+	case *receiverTypePtr == "value":
 		usePtrReceiver = false
-	} else {
+	default:
 		_, _ = fmt.Fprintln(os.Stderr, "Error: \"receiver\" flag must be \"pointer\" or \"value\"")
 		os.Exit(1)
 	}
@@ -127,7 +128,11 @@ func isFlagPassed(name string) bool {
 func main() {
 
 	inFilename, outFilename, defaultTypes, usePtrReceiver, constructorVisibility := parseCommandLineArgs()
-	fileContent, err := ioutil.ReadFile(inFilename)
+	fileContent, err := os.ReadFile(inFilename)
+	if err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "error: failed to read file %s: %v\n", inFilename, err)
+		os.Exit(1)
+	}
 	fset := token.NewFileSet()
 	astFile, err := parser.ParseFile(fset, inFilename, nil, parser.ParseComments)
 	if err != nil {
@@ -164,11 +169,12 @@ func main() {
 			}
 			structFlags.ProcessStruct = true
 			structFlags.PtrReceiver = usePtrReceiver
-			if constructorVisibility == "exported" {
+			switch {
+			case constructorVisibility == "exported":
 				structFlags.Visibility = ExportedVisibility
-			} else if constructorVisibility == "package" {
+			case constructorVisibility == "package":
 				structFlags.Visibility = PackageLevelVisibility
-			} else {
+			default:
 				structFlags.Visibility = NoVisibility
 			}
 		}
@@ -178,20 +184,20 @@ func main() {
 		for _, field := range st.Fields.List {
 			fieldTypeText := sp.fieldTypeText(field)
 			for _, fieldName := range field.Names {
+				acronym := sp.fieldAcronym(field)
 				if structFlags.Visibility != NoVisibility {
 					if !sp.fieldOptional(field) {
-						structArgName := gobBld.appendArgStruct(structName, fieldName.Name, fieldTypeText, structFlags)
+						structArgName := gobBld.appendArgStruct(structName, fieldName.Name, fieldTypeText,
+							structFlags, acronym)
 						if gobBld.constructorValueDef.Len() == 0 {
 							gobBld.appendBeginConstructorDef(structName, structFlags)
 							gobBld.appendBeginConstructorBody(structName)
 						}
-						gobBld.appendConstructorArg(fieldName.Name, structArgName)
+						gobBld.appendConstructorArg(fieldName.Name, structArgName, acronym)
 					}
 				}
 				if sp.fieldGetter(field) {
-					gobBld.appendGetter(structName, fieldName.Name, fieldTypeText, structFlags, false)
-				} else if sp.fieldUppercaseGetter(field) {
-					gobBld.appendGetter(structName, fieldName.Name, fieldTypeText, structFlags, true)
+					gobBld.appendGetter(structName, fieldName.Name, fieldTypeText, structFlags, acronym)
 				}
 			}
 		}
