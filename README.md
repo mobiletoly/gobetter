@@ -4,8 +4,20 @@ This project is an attempt to address lack of required fields in Go's struct typ
 a construction that will actually enforce specifying mandatory fields by a compiler with the approach
 similar to **named arguments**.
 
-As you are aware, when you create a structure in Go - you cannot specify required fields. For example,
-if we have a structure for Person such as
+Here is how it is going to look like in IDE, you will see only the next mandatory field
+that you have to set:
+
+![Autocomplete](autocomplete.png)
+
+Here is an example when IDE (and Go compiler) shows you that you have missing mandatory
+field (between `ExpiresIn` and `Build()`), and you will not be able to compile code until
+you have this error fixed):
+
+![Missing Field error](error_sample.png)
+
+Looks great, right? Let's see how to achieve this. As you are aware, when you create a
+structure in Go - you cannot specify required fields. For example, if we have a structure
+for Person such as:
 
 ```
 type Person struct {
