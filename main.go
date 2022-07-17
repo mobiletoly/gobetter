@@ -64,7 +64,7 @@ func parseCommandLineArgs() (
 
 	flag.Parse()
 	if isFlagPassed("print-version") {
-		println("gobetter version 0.8")
+		println("gobetter version 0.10")
 	}
 
 	inFilename = *inputFilePtr
@@ -140,11 +140,9 @@ func main() {
 	}
 	sp := NewStructParser(fset, fileContent)
 
-	gobBld := GobBuilder{
-		astFile: astFile,
-	}
-	gobBld.appendPackage()
-	gobBld.appendImports()
+	bld := strings.Builder{}
+	bld.WriteString(GeneratePackage(astFile))
+	bld.WriteString(GenerateImports(astFile))
 
 	ast.Inspect(astFile, func(n ast.Node) bool {
 		ts, ok := n.(*ast.TypeSpec)
@@ -181,32 +179,42 @@ func main() {
 
 		fmt.Printf("Process structure %s\n", structName)
 
+		structFields := make([]*StructField, 0)
 		for _, field := range st.Fields.List {
 			fieldTypeText := sp.fieldTypeText(field)
 			for _, fieldName := range field.Names {
-				acronym := sp.fieldAcronym(field)
+				structField := StructField{
+					StructFlags:   &structFlags,
+					StructName:    structName,
+					FieldName:     fieldName.Name,
+					FieldTypeText: fieldTypeText,
+					Acronym:       sp.fieldAcronym(field),
+				}
 				if structFlags.Visibility != NoVisibility {
 					if !sp.fieldOptional(field) {
-						structArgName := gobBld.appendArgStruct(structName, fieldName.Name, fieldTypeText,
-							structFlags, acronym)
-						if gobBld.constructorValueDef.Len() == 0 {
-							gobBld.appendBeginConstructorDef(structName, structFlags)
-							gobBld.appendBeginConstructorBody(structName)
-						}
-						gobBld.appendConstructorArg(fieldName.Name, structArgName, acronym)
+						structFields = append(structFields, &structField)
 					}
 				}
 				if sp.fieldGetter(field) {
-					gobBld.appendGetter(structName, fieldName.Name, fieldTypeText, structFlags, acronym)
+					bld.WriteString(structField.GenerateGetter())
 				}
 			}
 		}
 
-		gobBld.AcceptStruct(structName)
+		for i, sp := range structFields {
+			var str string
+			isLast := i == len(structFields)-1
+			if i == 0 {
+				str = sp.GenerateSourceCodeForStructField(nil, isLast)
+			} else {
+				str = sp.GenerateSourceCodeForStructField(structFields[i-1], isLast)
+			}
+			bld.WriteString(str)
+		}
 		return true
 	})
 
-	result := gobBld.Build()
+	result := bld.String()
 	if err = ioutil.WriteFile(outFilename, []byte(result), os.FileMode(0644)); err != nil {
 		panic(err)
 	}
