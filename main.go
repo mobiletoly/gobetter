@@ -64,7 +64,7 @@ func parseCommandLineArgs() (
 
 	flag.Parse()
 	if isFlagPassed("print-version") {
-		println("gobetter version 0.10")
+		println("gobetter version 0.11")
 	}
 
 	inFilename = *inputFilePtr

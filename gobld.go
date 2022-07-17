@@ -84,9 +84,18 @@ func (sf *StructField) GenerateSourceCodeForStructField(prev *StructField, last 
 	sf.generateBuilderStruct(bld)
 	if prev != nil {
 		sf.generateBuilderSetter(bld, prev)
-		if last {
-			sf.generateBuildFunction(bld)
+	}
+	if last {
+		finalSf := StructField{
+			StructFlags:   sf.StructFlags,
+			StructName:    sf.StructName,
+			FieldName:     "GobFinalizer",
+			FieldTypeText: "AAAAAA",
+			Acronym:       false,
 		}
+		finalSf.generateBuilderStruct(bld)
+		finalSf.generateBuilderSetter(bld, sf)
+		finalSf.generateBuildFunction(bld)
 	}
 	return bld.String()
 }
