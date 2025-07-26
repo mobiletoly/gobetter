@@ -1,6 +1,7 @@
 module github.com/mobiletoly/gobetter
 
-go 1.18
+go 1.23.0
 
-require (
-)
+toolchain go1.24.4
+
+require golang.org/x/text v0.27.0
