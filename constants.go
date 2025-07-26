@@ -4,7 +4,7 @@ import "regexp"
 
 // Version information
 const (
-	Version = "0.12.0"
+	Version = "0.12.1"
 )
 
 // File extensions and suffixes
