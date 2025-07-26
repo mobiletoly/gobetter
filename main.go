@@ -444,7 +444,7 @@ func generateCode(config *Config) error {
 
 			if isInnerStruct {
 				// For inner structs, check if we have a generated type alias
-				fieldTypeText = sp.getInnerStructFieldTypeWithAlias(field, structName, allStructs)
+				fieldTypeText = sp.getInnerStructFieldTypeWithAlias(field, structName, allStructs, config)
 			} else {
 				fieldTypeText = sp.fieldTypeText(field)
 			}

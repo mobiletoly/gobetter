@@ -78,7 +78,6 @@ type NestedStructExample struct { //+gob:Constructor
 	id   int64  //+gob:getter
 	name string //+gob:getter
 
-	// Configuration with nested settings
 	Config *struct { //+gob:Constructor
 		Host    string `json:"host"`
 		Port    int    `json:"port"`
@@ -91,8 +90,8 @@ type NestedStructExample struct { //+gob:Constructor
 			Port    int
 			Name    string
 			SslMode bool //+gob:_
-		}
-	}
+		} `json:"database"`
+	} `json:"config"`
 
 	IsActive bool
 }

@@ -327,7 +327,7 @@ func (sp *StructParser) getInnerStructFieldType(field *ast.Field, parentStructNa
 }
 
 // getInnerStructFieldTypeWithAlias gets the field type for inner structs, using type alias if available
-func (sp *StructParser) getInnerStructFieldTypeWithAlias(field *ast.Field, parentStructName string, allStructs []*StructInfo) string {
+func (sp *StructParser) getInnerStructFieldTypeWithAlias(field *ast.Field, parentStructName string, allStructs []*StructInfo, config *Config) string {
 	// Check if we have a generated type alias for this inner struct
 	for _, fieldName := range field.Names {
 		expectedTypeName := parentStructName + fieldName.Name
@@ -335,17 +335,29 @@ func (sp *StructParser) getInnerStructFieldTypeWithAlias(field *ast.Field, paren
 		// Look for this type in the allStructs list
 		for _, structInfo := range allStructs {
 			if structInfo.Name == expectedTypeName && structInfo.TypeSpec == nil {
-				// This is an inner struct - check if it has constructor annotation
+				// This is an inner struct - check if it has constructor annotation OR
+				// if it should be processed due to -generate-for=exported
+				shouldHaveTypeAlias := false
+
 				if structInfo.Field != nil {
 					flags := sp.constructorFlagsFromField(structInfo.Field)
 					if flags.ProcessStruct {
-						// We have a type alias for this inner struct
-						switch field.Type.(type) {
-						case *ast.StructType:
-							return expectedTypeName
-						case *ast.StarExpr:
-							return "*" + expectedTypeName
+						shouldHaveTypeAlias = true
+					} else if config.GenerateFor != nil && *config.GenerateFor == GenerateForExported {
+						// Check if the field is exported (for -generate-for=exported)
+						if unicode.IsUpper(rune(fieldName.Name[0])) {
+							shouldHaveTypeAlias = true
 						}
+					}
+				}
+
+				if shouldHaveTypeAlias {
+					// We have a type alias for this inner struct
+					switch field.Type.(type) {
+					case *ast.StructType:
+						return expectedTypeName
+					case *ast.StarExpr:
+						return "*" + expectedTypeName
 					}
 				}
 			}
