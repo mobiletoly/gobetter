@@ -4,7 +4,15 @@ import (
 	"time"
 )
 
-//go:generate gobetter -input $GOFILE
+//go:generate ../gobetter -input $GOFILE
+
+type S struct { //+gob:Constructor
+	Identifier string
+	IO         interface {
+		Read([]byte) (int, error)
+		Close() error
+	}
+}
 
 // Person represents a person with basic information
 type Person struct { //+gob:Constructor

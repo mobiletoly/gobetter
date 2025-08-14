@@ -12,7 +12,7 @@ func BenchmarkGenerateCode(b *testing.B) {
 	// Create a test input file
 	inputContent := `package test
 
-//go:generate gobetter -input $GOFILE
+//go:generate` + /*to avoid go:generate comment being executed*/ `gobetter -input $GOFILE
 
 type Person struct { //+gob:Constructor
 	firstName string //+gob:getter
@@ -51,10 +51,8 @@ type Company struct { //+gob:Constructor
 	}
 
 	config := &Config{
-		InputFile:             inputFile,
-		OutputFile:            filepath.Join(tmpDir, "test_gob.go"),
+		InputPath:             inputFile,
 		GenerateFor:           nil,
-		UsePtrReceiver:        false,
 		ConstructorVisibility: ConstructorExported,
 	}
 
@@ -72,7 +70,6 @@ func BenchmarkStructFieldGeneration(b *testing.B) {
 	sf := &StructField{
 		StructFlags: &StructFlags{
 			ProcessStruct: true,
-			PtrReceiver:   false,
 			Visibility:    ExportedVisibility,
 		},
 		StructName:    "Person",

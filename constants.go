@@ -16,7 +16,6 @@ const (
 // Command line flag names
 const (
 	FlagInput       = "input"
-	FlagOutput      = "output"
 	FlagGenerateFor = "generate-for"
 	FlagReceiver    = "receiver"
 	FlagConstructor = "constructor"

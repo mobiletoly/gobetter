@@ -10,11 +10,6 @@ import (
 
 // TestFullWorkflow tests the complete workflow from input to formatted output
 func TestFullWorkflow(t *testing.T) {
-	// Skip if goimports is not available
-	if err := validateGoimports(); err != nil {
-		t.Skip("goimports not available, skipping integration test")
-	}
-
 	testCases := []struct {
 		name        string
 		input       string
@@ -25,7 +20,7 @@ func TestFullWorkflow(t *testing.T) {
 			name: "simple struct with constructor",
 			input: `package test
 
-//go:generate gobetter -input $GOFILE
+//go:generate` + /*to avoid go:generate comment being executed*/ `gobetter -input $GOFILE
 
 type Person struct { //+gob:Constructor
 	firstName string //+gob:getter
@@ -126,12 +121,11 @@ type Plain struct {
 
 			// Create config
 			config := &Config{
-				InputFile:             inputFile,
-				OutputFile:            filepath.Join(tmpDir, "output_gob.go"),
+				InputPath:             inputFile,
 				GenerateFor:           nil,
-				UsePtrReceiver:        false,
 				ConstructorVisibility: ConstructorExported,
 			}
+			outputFile := makeOutputFilename(inputFile)
 
 			// Generate code
 			err = generateCode(config)
@@ -148,7 +142,7 @@ type Plain struct {
 			}
 
 			// Read output file
-			outputContent, err := os.ReadFile(config.OutputFile)
+			outputContent, err := os.ReadFile(outputFile)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -176,7 +170,7 @@ type Plain struct {
 			}
 
 			// Verify the output compiles
-			if err := verifyGoSyntax(config.OutputFile); err != nil {
+			if err := verifyGoSyntax(outputFile); err != nil {
 				t.Errorf("Generated code has syntax errors: %v", err)
 				t.Logf("Generated code:\n%s", output)
 			}
@@ -186,10 +180,6 @@ type Plain struct {
 
 // TestGenerateForFlags tests different generate-for flag values
 func TestGenerateForFlags(t *testing.T) {
-	if err := validateGoimports(); err != nil {
-		t.Skip("goimports not available, skipping integration test")
-	}
-
 	input := `package test
 
 type ExportedStruct struct {
@@ -238,19 +228,18 @@ type unexportedStruct struct {
 
 			generateFor := tc.generateFor
 			config := &Config{
-				InputFile:             inputFile,
-				OutputFile:            filepath.Join(tmpDir, "output_gob.go"),
+				InputPath:             inputFile,
 				GenerateFor:           &generateFor,
-				UsePtrReceiver:        false,
 				ConstructorVisibility: ConstructorExported,
 			}
+			outputFile := makeOutputFilename(inputFile)
 
 			err = generateCode(config)
 			if err != nil {
 				t.Fatal(err)
 			}
 
-			outputContent, err := os.ReadFile(config.OutputFile)
+			outputContent, err := os.ReadFile(outputFile)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -274,10 +263,6 @@ func verifyGoSyntax(filename string) error {
 
 // TestComplexStruct tests generation for a complex struct with various field types
 func TestComplexStruct(t *testing.T) {
-	if err := validateGoimports(); err != nil {
-		t.Skip("goimports not available, skipping integration test")
-	}
-
 	input := `package test
 
 import (
@@ -309,19 +294,18 @@ type ComplexStruct struct { //+gob:Constructor
 	}
 
 	config := &Config{
-		InputFile:             inputFile,
-		OutputFile:            filepath.Join(tmpDir, "output_gob.go"),
+		InputPath:             inputFile,
 		GenerateFor:           nil,
-		UsePtrReceiver:        false,
 		ConstructorVisibility: ConstructorExported,
 	}
+	outputFile := makeOutputFilename(inputFile)
 
 	err = generateCode(config)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	outputContent, err := os.ReadFile(config.OutputFile)
+	outputContent, err := os.ReadFile(outputFile)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -329,8 +313,7 @@ type ComplexStruct struct { //+gob:Constructor
 	output := string(outputContent)
 
 	expectedElements := []string{
-		"import (",
-		"\"time\"",
+		"\"time\"", // Import can be either "import \"time\"" or "import (\n\"time\"\n)"
 		"func (v *ComplexStruct) Id() int64",
 		"func (v *ComplexStruct) Name() string",
 		"func NewComplexStructBuilder()",
@@ -353,7 +336,7 @@ type ComplexStruct struct { //+gob:Constructor
 	}
 
 	// Verify syntax
-	if err := verifyGoSyntax(config.OutputFile); err != nil {
+	if err := verifyGoSyntax(outputFile); err != nil {
 		t.Errorf("Generated code has syntax errors: %v", err)
 		t.Logf("Generated code:\n%s", output)
 	}

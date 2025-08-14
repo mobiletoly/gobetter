@@ -114,8 +114,8 @@ func TestStructTagPreservation(t *testing.T) {
 		t.Errorf("Expected JSON field 'timeout' from struct tag, but not found")
 	}
 
-	// Check nested struct tags
-	if database, ok := result["Database"].(map[string]interface{}); ok {
+	// Check nested struct tags (note: field name is "database" due to json tag)
+	if database, ok := result["database"].(map[string]interface{}); ok {
 		if _, ok := database["driver"]; !ok {
 			t.Errorf("Expected JSON field 'driver' from nested struct tag, but not found")
 		}
@@ -123,7 +123,7 @@ func TestStructTagPreservation(t *testing.T) {
 			t.Errorf("Expected JSON field 'host' from nested struct tag, but not found")
 		}
 	} else {
-		t.Errorf("Expected nested Database object in JSON")
+		t.Errorf("Expected nested database object in JSON")
 	}
 }
 
@@ -207,4 +207,106 @@ func TestPointerToStructSupport(t *testing.T) {
 	if nested.Config.Database.Driver != "mysql" {
 		t.Errorf("Expected Config.Database.Driver to be 'mysql', got '%s'", nested.Config.Database.Driver)
 	}
+}
+
+// TestInlineInterfaceBuilders tests that builders work correctly with inline interfaces
+func TestInlineInterfaceBuilders(t *testing.T) {
+	// Create a mock implementation of the inline interface
+	mockIO := &mockReadCloser{
+		data: []byte("test data"),
+	}
+
+	// Test building struct S with inline interface
+	result := NewSBuilder().
+		Identifier("test-id").
+		IO(mockIO).
+		Build()
+
+	if result.Identifier != "test-id" {
+		t.Errorf("Expected Identifier to be 'test-id', got '%s'", result.Identifier)
+	}
+
+	if result.IO == nil {
+		t.Errorf("Expected IO to be non-nil")
+	}
+
+	// Test that the interface methods work
+	buffer := make([]byte, 10)
+	n, err := result.IO.Read(buffer)
+	if err != nil {
+		t.Errorf("Unexpected error from IO.Read: %v", err)
+	}
+	if n == 0 {
+		t.Errorf("Expected to read some data, got 0 bytes")
+	}
+
+	err = result.IO.Close()
+	if err != nil {
+		t.Errorf("Unexpected error from IO.Close: %v", err)
+	}
+}
+
+// TestInlineInterfaceTypeSignature tests that the generated method signature is correct
+func TestInlineInterfaceTypeSignature(t *testing.T) {
+	// This test verifies that the generated builder method accepts the correct inline interface type
+	// We can't easily test the exact signature programmatically, but we can test that it compiles
+	// and works correctly with different implementations
+
+	// Test with a different mock implementation
+	mockIO2 := &alternativeMockReadCloser{}
+
+	result := NewSBuilder().
+		Identifier("test-signature").
+		IO(mockIO2).
+		Build()
+
+	if result.Identifier != "test-signature" {
+		t.Errorf("Expected Identifier to be 'test-signature', got '%s'", result.Identifier)
+	}
+
+	// Test that both implementations work with the same interface
+	buffer := make([]byte, 5)
+	n, err := result.IO.Read(buffer)
+	if err != nil {
+		t.Errorf("Unexpected error from alternative implementation: %v", err)
+	}
+	if n != 5 {
+		t.Errorf("Expected to read 5 bytes, got %d", n)
+	}
+	if string(buffer) != "hello" {
+		t.Errorf("Expected to read 'hello', got '%s'", string(buffer))
+	}
+}
+
+// Mock implementations for testing
+type mockReadCloser struct {
+	data []byte
+	pos  int
+}
+
+func (m *mockReadCloser) Read(p []byte) (int, error) {
+	if m.pos >= len(m.data) {
+		return 0, nil
+	}
+	n := copy(p, m.data[m.pos:])
+	m.pos += n
+	return n, nil
+}
+
+func (m *mockReadCloser) Close() error {
+	return nil
+}
+
+// Alternative mock implementation to test interface compatibility
+type alternativeMockReadCloser struct{}
+
+func (m *alternativeMockReadCloser) Read(p []byte) (int, error) {
+	// Return "hello" for testing
+	data := []byte("hello")
+	n := copy(p, data)
+	return n, nil
+}
+
+func (m *alternativeMockReadCloser) Close() error {
+	return nil
 }

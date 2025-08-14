@@ -47,14 +47,6 @@ func TestMakeOutputFilename(t *testing.T) {
 	}
 }
 
-func TestValidateGoimports(t *testing.T) {
-	// This test assumes goimports is available in the system
-	err := validateGoimports()
-	if err != nil {
-		t.Skip("goimports not available, skipping test")
-	}
-}
-
 func TestParseCommandLineArgs(t *testing.T) {
 	// Skip this test as it interferes with the global flag state
 	// The functionality is tested in integration tests instead
@@ -65,7 +57,7 @@ func TestGenerateCode(t *testing.T) {
 	// Create a temporary input file with test struct
 	inputContent := `package test
 
-//go:generate gobetter -input $GOFILE
+//go:generate` + /**/ `gobetter -input $GOFILE
 
 type Person struct { //+gob:Constructor
 	firstName string //+gob:getter
@@ -86,12 +78,11 @@ type Person struct { //+gob:Constructor
 	}
 
 	config := &Config{
-		InputFile:             inputFile,
-		OutputFile:            filepath.Join(tmpDir, "test_gob.go"),
+		InputPath:             inputFile,
 		GenerateFor:           nil,
-		UsePtrReceiver:        false,
 		ConstructorVisibility: ConstructorExported,
 	}
+	outputFile := filepath.Join(tmpDir, "test_gob.go")
 
 	err = generateCode(config)
 	if err != nil {
@@ -99,12 +90,12 @@ type Person struct { //+gob:Constructor
 	}
 
 	// Check if output file was created
-	if _, err := os.Stat(config.OutputFile); os.IsNotExist(err) {
+	if _, err := os.Stat(outputFile); os.IsNotExist(err) {
 		t.Error("Output file was not created")
 	}
 
 	// Read and verify output content
-	outputContent, err := os.ReadFile(config.OutputFile)
+	outputContent, err := os.ReadFile(outputFile)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -6,9 +6,7 @@ import (
 	"go/token"
 	"strings"
 	"unicode"
-
-	"golang.org/x/text/cases"
-	"golang.org/x/text/language"
+	"unicode/utf8"
 )
 
 type Visibility int
@@ -23,7 +21,6 @@ const (
 type StructParser struct {
 	fileSet     *token.FileSet
 	fileContent []byte
-	titleCaser  cases.Caser
 }
 
 // StructField represents a field in a struct that needs builder generation
@@ -38,7 +35,6 @@ type StructField struct {
 // StructFlags contains configuration flags for struct processing
 type StructFlags struct {
 	ProcessStruct bool
-	PtrReceiver   bool
 	Visibility    Visibility
 }
 
@@ -50,36 +46,18 @@ func GeneratePackage(astFile *ast.File) string {
 	return bld.String()
 }
 
-// GenerateImports generates the import statements for the output file
-func GenerateImports(astFile *ast.File) string {
-	if len(astFile.Imports) == 0 {
-		return ""
-	}
-
-	var bld strings.Builder
-	bld.WriteString("import (\n")
-	for _, imp := range astFile.Imports {
-		bld.WriteString(fmt.Sprintf("\t%s\n", imp.Path.Value))
-	}
-	bld.WriteString(")\n\n")
-	return bld.String()
-}
-
 // GenerateGetter generates a getter method for a struct field
 func (sf *StructField) GenerateGetter() string {
-	var methodName string
-	if sf.Acronym {
-		methodName = strings.ToUpper(sf.FieldName)
-	} else {
-		// Use proper title casing that capitalizes the first letter only
-		methodName = strings.ToUpper(sf.FieldName[:1]) + sf.FieldName[1:]
-	}
+	methodName := exportName(sf.FieldName, sf.Acronym)
+
+	// Default to pointer receiver for backward compatibility unless explicitly set to value.
+	receiverType := "*" + sf.StructName
 	return fmt.Sprintf(`
-func (v *%s) %s() %s {
+func (v %s) %s() %s {
 	return v.%s
 }
 
-`, sf.StructName, methodName, sf.FieldTypeText, sf.FieldName)
+`, receiverType, methodName, sf.FieldTypeText, sf.FieldName)
 }
 
 // GenerateSourceCodeForStructField generates the builder code for a struct field
@@ -132,13 +110,7 @@ type %s struct {
 
 // generateBuilderSetter generates a setter method for the builder
 func (sf *StructField) generateBuilderSetter(bld *strings.Builder, prev *StructField) {
-	var setterName string
-	if prev.Acronym {
-		setterName = strings.ToUpper(prev.FieldName)
-	} else {
-		setterName = strings.ToUpper(prev.FieldName[:1]) + prev.FieldName[1:]
-	}
-
+	setterName := exportName(prev.FieldName, prev.Acronym)
 	prevBuilderStructName := prev.builderFieldStructName()
 	builderStructName := sf.builderFieldStructName()
 	bld.WriteString(fmt.Sprintf(`
@@ -158,9 +130,9 @@ func (sf *StructField) generateConstructor(bld *strings.Builder) {
 	var funcName string
 	firstChar := rune(sf.StructName[0])
 	if unicode.IsLower(firstChar) || sf.StructFlags.Visibility == PackageLevelVisibility {
-		funcName = LowerNewPrefix + strings.ToUpper(sf.StructName[:1]) + sf.StructName[1:]
+		funcName = LowerNewPrefix + upperFirstASCIIOrUnicode(sf.StructName)
 	} else {
-		funcName = NewPrefix + strings.ToUpper(sf.StructName[:1]) + sf.StructName[1:]
+		funcName = NewPrefix + upperFirstASCIIOrUnicode(sf.StructName)
 	}
 
 	bld.WriteString(fmt.Sprintf(`
@@ -173,13 +145,7 @@ func %s%s() %s {
 
 // builderFieldStructName generates the name for a builder struct
 func (sf *StructField) builderFieldStructName() string {
-	var title string
-	if sf.Acronym {
-		title = strings.ToUpper(sf.FieldName)
-	} else {
-		title = strings.ToUpper(sf.FieldName[:1]) + sf.FieldName[1:]
-	}
-	return sf.StructName + BuilderPrefix + title
+	return sf.StructName + BuilderPrefix + exportName(sf.FieldName, sf.Acronym)
 }
 
 // NewStructParser creates a new StructParser instance
@@ -187,98 +153,47 @@ func NewStructParser(fileSet *token.FileSet, fileContent []byte) StructParser {
 	return StructParser{
 		fileSet:     fileSet,
 		fileContent: fileContent,
-		titleCaser:  cases.Title(language.English),
 	}
 }
 
-// fieldTypeText extracts the type text for a field
+// fieldTypeText extracts the type text for a field using the AST pretty-printer,
+// ensuring valid Go syntax (e.g., semicolons between interface methods).
 func (sp *StructParser) fieldTypeText(field *ast.Field) string {
-	begin := sp.fileSet.Position(field.Type.Pos()).Offset
-	end := sp.fileSet.Position(field.Type.End()).Offset
-	return WhitespaceRegexp.ReplaceAllString(string(sp.fileContent[begin:end]), " ")
+	if field == nil || field.Type == nil {
+		return ""
+	}
+	return sp.getFieldTypeFromAST(field.Type)
 }
 
-// fieldOptional checks if a field is marked as optional
-func (sp *StructParser) fieldOptional(field *ast.Field) bool {
-	if field.Comment == nil {
-		return false
-	}
-	return FlagOptionalRegexp.MatchString(field.Comment.Text())
-}
-
-// fieldGetter checks if a field should have a getter generated
-func (sp *StructParser) fieldGetter(field *ast.Field) bool {
-	if field.Comment == nil {
-		return false
-	}
-	return FlagGetterRegexp.MatchString(field.Comment.Text())
-}
-
-// fieldAcronym checks if a field is marked as an acronym
-func (sp *StructParser) fieldAcronym(field *ast.Field) bool {
-	if field.Comment == nil {
-		return false
-	}
-	return FlagAcronymRegexp.MatchString(field.Comment.Text())
-}
-
-// constructorFlags parses the constructor flags from struct comments
-func (sp *StructParser) constructorFlags(st *ast.StructType) StructFlags {
-	begin := st.Struct
-	endLine := sp.fileSet.File(begin).Line(begin) + 1
-	end := sp.fileSet.File(begin).LineStart(endLine)
-	result := string(sp.fileContent[sp.fileSet.Position(begin).Offset:sp.fileSet.Position(end).Offset])
-
-	flags := StructFlags{
-		ProcessStruct: false,
-		PtrReceiver:   false,
-		Visibility:    ExportedVisibility,
-	}
-
-	if ConstructorPackageRegexp.MatchString(result) {
-		flags.ProcessStruct = true
-		flags.Visibility = PackageLevelVisibility
-	} else if ConstructorExportedRegexp.MatchString(result) {
-		flags.ProcessStruct = true
-		flags.Visibility = ExportedVisibility
-	} else if ConstructorNoRegexp.MatchString(result) {
-		flags.ProcessStruct = true
-		flags.Visibility = NoVisibility
-	}
-
-	return flags
-}
-
-// constructorFlagsFromField parses constructor flags from field comments for inner structs
-func (sp *StructParser) constructorFlagsFromField(field *ast.Field) StructFlags {
-	flags := StructFlags{
-		ProcessStruct: false,
-		PtrReceiver:   false,
-		Visibility:    ExportedVisibility,
-	}
-
+// fieldCommentText returns all comments relevant to a field:
+// - trailing line comment (inline, same line as the field)
+// - field.Comment (trailing comment group)
+// - field.Doc (leading doc comment group)
+func (sp *StructParser) fieldCommentText(field *ast.Field) string {
 	if field == nil {
-		return flags
+		return ""
 	}
 
-	// Check both field.Comment and field.Doc for comments
-	var commentText string
+	var b strings.Builder
 	if field.Comment != nil {
-		commentText += field.Comment.Text()
+		b.WriteString(field.Comment.Text())
 	}
 	if field.Doc != nil {
-		commentText += field.Doc.Text()
+		b.WriteString(field.Doc.Text())
 	}
 
-	// Always check the line where the field is defined for inline comments
-	// Get the entire line content to check for inline comments
+	// Add inline comment on the same line as the field declaration, if present.
 	begin := field.Pos()
+	file := sp.fileSet.File(begin)
+	if file == nil {
+		return b.String()
+	}
 	line := sp.fileSet.Position(begin).Line
-	lineStart := sp.fileSet.File(begin).LineStart(line)
+	lineStart := file.LineStart(line)
 
 	var lineEnd token.Pos
-	if line < sp.fileSet.File(begin).LineCount() {
-		lineEnd = sp.fileSet.File(begin).LineStart(line+1) - 1
+	if line < file.LineCount() {
+		lineEnd = file.LineStart(line+1) - 1
 	} else {
 		lineEnd = token.Pos(len(sp.fileContent))
 	}
@@ -286,14 +201,97 @@ func (sp *StructParser) constructorFlagsFromField(field *ast.Field) StructFlags 
 	startOffset := sp.fileSet.Position(lineStart).Offset
 	endOffset := sp.fileSet.Position(lineEnd).Offset
 
-	if startOffset < len(sp.fileContent) && endOffset <= len(sp.fileContent) {
+	if startOffset >= 0 && endOffset >= 0 && startOffset < endOffset && endOffset <= len(sp.fileContent) {
 		lineContent := string(sp.fileContent[startOffset:endOffset])
-		// Look for comments on this line
 		if idx := strings.Index(lineContent, "//"); idx != -1 {
-			inlineComment := lineContent[idx:]
-			commentText += inlineComment
+			b.WriteString(lineContent[idx:])
 		}
 	}
+
+	return b.String()
+}
+
+// fieldOptional checks if a field is marked as optional
+func (sp *StructParser) fieldOptional(field *ast.Field) bool {
+	return FlagOptionalRegexp.MatchString(sp.fieldCommentText(field))
+}
+
+// fieldGetter checks if a field should have a getter generated
+func (sp *StructParser) fieldGetter(field *ast.Field) bool {
+	return FlagGetterRegexp.MatchString(sp.fieldCommentText(field))
+}
+
+// fieldAcronym checks if a field is marked as an acronym
+func (sp *StructParser) fieldAcronym(field *ast.Field) bool {
+	return FlagAcronymRegexp.MatchString(sp.fieldCommentText(field))
+}
+
+// constructorFlags parses constructor flags from the type line and any contiguous
+// doc comments immediately above it. We intentionally work from the StructType's
+// `struct` token position and walk the file lines using fileSet, so we don't
+// require the caller to pass *ast.TypeSpec or *ast.GenDecl.
+func (sp *StructParser) constructorFlags(st *ast.StructType) StructFlags {
+	flags := StructFlags{
+		ProcessStruct: false,
+		Visibility:    ExportedVisibility,
+	}
+
+	begin := st.Struct
+	file := sp.fileSet.File(begin)
+	if file == nil {
+		return flags
+	}
+
+	// Line containing the `struct` keyword (usually the `type ... struct {` line)
+	line := file.Line(begin)
+
+	// Helper to fetch raw bytes for a given 1-based line number.
+	getLine := func(ln int) string {
+		if ln < 1 || ln > file.LineCount() {
+			return ""
+		}
+		start := file.LineStart(ln)
+		var end token.Pos
+		if ln < file.LineCount() {
+			end = file.LineStart(ln+1) - 1
+		} else {
+			end = token.Pos(len(sp.fileContent))
+		}
+		startOffset := sp.fileSet.Position(start).Offset
+		endOffset := sp.fileSet.Position(end).Offset
+		if startOffset < 0 || endOffset < 0 || startOffset > len(sp.fileContent) || endOffset > len(sp.fileContent) || startOffset >= endOffset {
+			return ""
+		}
+		return string(sp.fileContent[startOffset:endOffset])
+	}
+
+	var builder strings.Builder
+
+	// 1) Inline comment on the type line (same line as `struct`).
+	typeLine := getLine(line)
+	if idx := strings.Index(typeLine, "//"); idx != -1 {
+		builder.WriteString(typeLine[idx:])
+		builder.WriteString("\n")
+	}
+
+	// 2) Contiguous doc comment block immediately above (lines starting with //).
+	for ln := line - 1; ln >= 1; ln-- {
+		txt := strings.TrimSpace(getLine(ln))
+		if txt == "" {
+			// Blank lines break a Go doc comment group; stop collecting.
+			break
+		}
+		if strings.HasPrefix(txt, "//") {
+			// Prepend to preserve natural order.
+			builder.WriteString(txt)
+			builder.WriteString("\n")
+			continue
+		}
+		// Non-comment code or other text stops the doc comment block.
+		break
+	}
+
+	commentText := builder.String()
 
 	if ConstructorPackageRegexp.MatchString(commentText) {
 		flags.ProcessStruct = true
@@ -306,6 +304,30 @@ func (sp *StructParser) constructorFlagsFromField(field *ast.Field) StructFlags 
 		flags.Visibility = NoVisibility
 	}
 
+	return flags
+}
+
+// constructorFlagsFromField parses constructor flags from field comments for inner structs
+func (sp *StructParser) constructorFlagsFromField(field *ast.Field) StructFlags {
+	flags := StructFlags{
+		ProcessStruct: false,
+		Visibility:    ExportedVisibility,
+	}
+	if field == nil {
+		return flags
+	}
+	commentText := sp.fieldCommentText(field)
+
+	if ConstructorPackageRegexp.MatchString(commentText) {
+		flags.ProcessStruct = true
+		flags.Visibility = PackageLevelVisibility
+	} else if ConstructorExportedRegexp.MatchString(commentText) {
+		flags.ProcessStruct = true
+		flags.Visibility = ExportedVisibility
+	} else if ConstructorNoRegexp.MatchString(commentText) {
+		flags.ProcessStruct = true
+		flags.Visibility = NoVisibility
+	}
 	return flags
 }
 
@@ -381,12 +403,22 @@ func (sp *StructParser) buildStructTypeString(st *ast.StructType) string {
 			tag = " " + field.Tag.Value // field.Tag.Value includes the backticks
 		}
 
+		// Embedded field: field.Names == nil or len == 0
+		if len(field.Names) == 0 {
+			fieldParts = append(fieldParts, fmt.Sprintf("%s%s", fieldType, tag))
+			continue
+		}
+
+		// Named field(s)
 		for _, name := range field.Names {
 			// Use the original field name (don't capitalize) to match the struct definition
 			fieldParts = append(fieldParts, fmt.Sprintf("%s %s%s", name.Name, fieldType, tag))
 		}
 	}
 
+	if len(fieldParts) == 0 {
+		return "struct{}"
+	}
 	// Join fields with semicolons and wrap in struct { }
 	return fmt.Sprintf("struct { %s }", strings.Join(fieldParts, "; "))
 }
@@ -408,14 +440,93 @@ func (sp *StructParser) getFieldTypeFromAST(expr ast.Expr) string {
 		pkg := sp.getFieldTypeFromAST(t.X)
 		return fmt.Sprintf("%s.%s", pkg, t.Sel.Name)
 	case *ast.InterfaceType:
-		if len(t.Methods.List) == 0 {
+		// Empty interface
+		if t.Methods == nil || len(t.Methods.List) == 0 {
 			return "interface{}"
 		}
-		return "interface{}" // Simplified
-	case *ast.StructType:
-		// Nested struct - recursively build it
-		return sp.buildStructTypeString(t)
+
+		// Non-empty interface: render method set (and embedded interfaces)
+		var parts []string
+		for _, m := range t.Methods.List {
+			// Embedded interface or type term (no name)
+			if len(m.Names) == 0 {
+				parts = append(parts, sp.getFieldTypeFromAST(m.Type))
+				continue
+			}
+			// Method declaration
+			if ft, ok := m.Type.(*ast.FuncType); ok {
+				params := sp.tupleToString(ft.Params)
+				results := sp.resultsToString(ft.Results)
+				parts = append(parts, fmt.Sprintf("%s%s%s", m.Names[0].Name, params, results))
+				continue
+			}
+			// Fallback: just the name if we can't parse a signature
+			parts = append(parts, m.Names[0].Name)
+		}
+
+		// separate specs with semicolons
+		return "interface{ " + strings.Join(parts, "; ") + " }"
 	default:
 		return "interface{}" // Fallback
 	}
+}
+
+// tupleToString renders a parameter tuple (without names) like "(int, string)".
+func (sp *StructParser) tupleToString(fl *ast.FieldList) string {
+	if fl == nil || len(fl.List) == 0 {
+		return "()"
+	}
+	var items []string
+	for _, f := range fl.List {
+		typ := sp.getFieldTypeFromAST(f.Type)
+		// When omitting names, duplicate the type for each name, or once if unnamed.
+		count := 1
+		if n := len(f.Names); n > 0 {
+			count = n
+		}
+		for i := 0; i < count; i++ {
+			items = append(items, typ)
+		}
+	}
+	return "(" + strings.Join(items, ", ") + ")"
+}
+
+// resultsToString renders a result tuple. For a single unnamed result, it returns " T".
+// For multiple results, it returns " (T1, T2)". Names are omitted for brevity and stability.
+func (sp *StructParser) resultsToString(fl *ast.FieldList) string {
+	if fl == nil || len(fl.List) == 0 {
+		return ""
+	}
+	var items []string
+	for _, f := range fl.List {
+		typ := sp.getFieldTypeFromAST(f.Type)
+		count := 1
+		if n := len(f.Names); n > 0 {
+			count = n
+		}
+		for i := 0; i < count; i++ {
+			items = append(items, typ)
+		}
+	}
+	if len(items) == 1 {
+		return " " + items[0]
+	}
+	return " (" + strings.Join(items, ", ") + ")"
+}
+
+// upperFirstASCIIOrUnicode upper-cases the first character in a string.
+func upperFirstASCIIOrUnicode(s string) string {
+	if s == "" {
+		return s
+	}
+	r, sz := utf8.DecodeRuneInString(s)
+	return strings.ToUpper(string(r)) + s[sz:]
+}
+
+// exportName centralizes the decision of how to render a field/method name with acronym flag support.
+func exportName(s string, acronym bool) string {
+	if acronym {
+		return strings.ToUpper(s)
+	}
+	return upperFirstASCIIOrUnicode(s)
 }

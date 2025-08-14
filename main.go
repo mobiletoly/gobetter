@@ -8,18 +8,17 @@ import (
 	"go/parser"
 	"go/token"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"unicode"
+
+	"golang.org/x/tools/imports"
 )
 
 // Config holds the configuration for the gobetter generator
 type Config struct {
-	InputFile             string
-	OutputFile            string
+	InputPath             string // Can be file or directory
 	GenerateFor           *string
-	UsePtrReceiver        bool
 	ConstructorVisibility string
 }
 
@@ -36,33 +35,65 @@ func makeOutputFilename(inFilename string) string {
 	return filepath.Join(dir, base+GobFileSuffix+ext)
 }
 
-// validateGoimports checks if goimports is available
-func validateGoimports() error {
-	_, err := exec.LookPath("goimports")
+// findGoFiles recursively finds all .go files in a directory, excluding _gob.go files
+func findGoFiles(rootPath string) ([]string, error) {
+	var goFiles []string
+
+	err := filepath.Walk(rootPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Skip directories
+		if info.IsDir() {
+			return nil
+		}
+
+		// Only process .go files
+		if !strings.HasSuffix(path, ".go") {
+			return nil
+		}
+
+		// Skip already generated _gob.go files
+		if strings.HasSuffix(path, GobFileSuffix+".go") {
+			return nil
+		}
+
+		// Skip test files
+		if strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+
+		goFiles = append(goFiles, path)
+		return nil
+	})
+
+	return goFiles, err
+}
+
+// getInputFiles returns the list of files to process based on the input path
+func getInputFiles(inputPath string) ([]string, error) {
+	info, err := os.Stat(inputPath)
 	if err != nil {
-		return errors.New(ErrGoimportsNotFound + "\n" + ErrGoimportsInstall)
+		return nil, err
 	}
-	return nil
+
+	if info.IsDir() {
+		return findGoFiles(inputPath)
+	}
+
+	// Single file
+	return []string{inputPath}, nil
 }
 
 // parseCommandLineArgs parses and validates command line arguments
 func parseCommandLineArgs() (*Config, error) {
-	if err := validateGoimports(); err != nil {
-		return nil, err
-	}
-
-	inputFilePtr := flag.String(FlagInput, "", "go input file path")
-	outputFilePtr := flag.String(FlagOutput, "", "go output file path (optional)")
+	inputPathPtr := flag.String(FlagInput, "", "go input file or directory path")
 	generateForPtr := flag.String(FlagGenerateFor, GenerateForAnnotated,
 		`allows parsing of non-annotated struct types:
 |  all       - process exported and package-level classes
 |  exported  - process exported classes only
 |  annotated - process specifically annotated class only
-`)
-	receiverTypePtr := flag.String(FlagReceiver, ReceiverValue,
-		`specify function receiver type:
-|  value     - receiver must be a value type, e.g. { func (v *Class) Name }
-|  pointer   - receiver must be a pointer type, e.g. { func (v Class) Name }
 `)
 	constructorVisibilityPtr := flag.String(FlagConstructor, ConstructorExported,
 		`generate exported or package-level constructors:
@@ -80,21 +111,15 @@ func parseCommandLineArgs() (*Config, error) {
 	}
 
 	config := &Config{
-		InputFile: *inputFilePtr,
+		InputPath: *inputPathPtr,
 	}
 
 	if !isFlagPassed(FlagInput) {
 		return nil, errors.New(ErrInputRequired)
 	}
 
-	if _, err := os.Stat(config.InputFile); os.IsNotExist(err) {
-		return nil, fmt.Errorf(ErrFileNotExist, config.InputFile)
-	}
-
-	if isFlagPassed(FlagOutput) {
-		config.OutputFile = *outputFilePtr
-	} else {
-		config.OutputFile = makeOutputFilename(config.InputFile)
+	if _, err := os.Stat(config.InputPath); os.IsNotExist(err) {
+		return nil, fmt.Errorf(ErrFileNotExist, config.InputPath)
 	}
 
 	// Validate generate-for flag
@@ -107,16 +132,6 @@ func parseCommandLineArgs() (*Config, error) {
 		return nil, errors.New(ErrInvalidGenerateFor)
 	}
 
-	// Validate receiver flag
-	switch *receiverTypePtr {
-	case ReceiverPointer:
-		config.UsePtrReceiver = true
-	case ReceiverValue:
-		config.UsePtrReceiver = false
-	default:
-		return nil, errors.New(ErrInvalidReceiver)
-	}
-
 	// Validate constructor flag
 	switch *constructorVisibilityPtr {
 	case ConstructorExported, ConstructorPackage, ConstructorNone:
@@ -124,9 +139,6 @@ func parseCommandLineArgs() (*Config, error) {
 	default:
 		return nil, errors.New(ErrInvalidConstructor)
 	}
-
-	fmt.Printf("Input file: %s\n", config.InputFile)
-	fmt.Printf("Output file: %s\n", config.OutputFile)
 	return config, nil
 }
 
@@ -328,15 +340,41 @@ func getTypeString(expr ast.Expr, parentPath string) string {
 	}
 }
 
-// generateCode generates the builder code based on the configuration
+// generateCode generates the builder code for all input files based on the configuration
 func generateCode(config *Config) error {
-	fileContent, err := os.ReadFile(config.InputFile)
+	inputFiles, err := getInputFiles(config.InputPath)
 	if err != nil {
-		return fmt.Errorf(ErrReadFile, config.InputFile, err)
+		return fmt.Errorf("failed to get input files: %w", err)
+	}
+
+	if len(inputFiles) == 0 {
+		return fmt.Errorf("no Go files found in: %s", config.InputPath)
+	}
+
+	fmt.Printf("Processing %d file(s)...\n", len(inputFiles))
+
+	for _, inputFile := range inputFiles {
+		fmt.Printf("Input file: %s\n", inputFile)
+		outputFile := makeOutputFilename(inputFile)
+		fmt.Printf("    Output: %s\n", outputFile)
+
+		if err := generateCodeForFile(inputFile, outputFile, config); err != nil {
+			return fmt.Errorf("failed to process file %s: %w", inputFile, err)
+		}
+	}
+
+	return nil
+}
+
+// generateCodeForFile generates the builder code for a single file
+func generateCodeForFile(inputFile, outputFile string, config *Config) error {
+	fileContent, err := os.ReadFile(inputFile)
+	if err != nil {
+		return fmt.Errorf(ErrReadFile, inputFile, err)
 	}
 
 	fset := token.NewFileSet()
-	astFile, err := parser.ParseFile(fset, config.InputFile, nil, parser.ParseComments)
+	astFile, err := parser.ParseFile(fset, inputFile, nil, parser.ParseComments)
 	if err != nil {
 		return fmt.Errorf("failed to parse file: %w", err)
 	}
@@ -345,7 +383,7 @@ func generateCode(config *Config) error {
 
 	var bld strings.Builder
 	bld.WriteString(GeneratePackage(astFile))
-	bld.WriteString(GenerateImports(astFile))
+	//bld.WriteString(GenerateImports(astFile))
 
 	// Find all structs (including inner structs)
 	allStructs := findAllStructs(astFile, "")
@@ -417,7 +455,6 @@ func generateCode(config *Config) error {
 				}
 			}
 			structFlags.ProcessStruct = true
-			structFlags.PtrReceiver = config.UsePtrReceiver
 			switch config.ConstructorVisibility {
 			case ConstructorExported:
 				structFlags.Visibility = ExportedVisibility
@@ -456,6 +493,13 @@ func generateCode(config *Config) error {
 					}
 				}
 
+				// Validate getter annotation usage
+				if sp.fieldGetter(field) {
+					if unicode.IsUpper(rune(fieldName.Name[0])) {
+						return fmt.Errorf("field '%s' in struct '%s' has //+gob:getter annotation but starts with uppercase. Getter annotation should only be used with private (lowercase) fields", fieldName.Name, structName)
+					}
+				}
+
 				structField := StructField{
 					StructFlags:   &structFlags,
 					StructName:    structName,
@@ -489,14 +533,21 @@ func generateCode(config *Config) error {
 	}
 
 	result := bld.String()
-	if err := os.WriteFile(config.OutputFile, []byte(result), 0644); err != nil {
+	if err := os.WriteFile(outputFile, ([]byte)(result), 0644); err != nil {
 		return fmt.Errorf("failed to write output file: %w", err)
 	}
 
-	// Format the generated code with goimports
-	cmd := exec.Command("goimports", "-w", config.OutputFile)
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to format generated code: %w", err)
+	// Format and fix imports in-memory using the goimports library
+	processed, err := imports.Process(outputFile, []byte(result), &imports.Options{
+		Comments:   true,
+		TabWidth:   8,
+		FormatOnly: false,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to format generated code/imports: %w", err)
+	}
+	if err := os.WriteFile(outputFile, processed, 0644); err != nil {
+		return fmt.Errorf("failed to write output file: %w", err)
 	}
 
 	return nil

@@ -4,6 +4,8 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -22,45 +24,6 @@ func TestGeneratePackage(t *testing.T) {
 
 	if result != expected {
 		t.Errorf("GeneratePackage() = %q, expected %q", result, expected)
-	}
-}
-
-func TestGenerateImports(t *testing.T) {
-	tests := []struct {
-		name     string
-		src      string
-		expected string
-	}{
-		{
-			name:     "no imports",
-			src:      "package test\n",
-			expected: "",
-		},
-		{
-			name:     "single import",
-			src:      "package test\nimport \"fmt\"\n",
-			expected: "import (\n\t\"fmt\"\n)\n\n",
-		},
-		{
-			name:     "multiple imports",
-			src:      "package test\nimport (\n\t\"fmt\"\n\t\"strings\"\n)\n",
-			expected: "import (\n\t\"fmt\"\n\t\"strings\"\n)\n\n",
-		},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			fset := token.NewFileSet()
-			astFile, err := parser.ParseFile(fset, "test.go", test.src, parser.ParseComments)
-			if err != nil {
-				t.Fatal(err)
-			}
-
-			result := GenerateImports(astFile)
-			if result != test.expected {
-				t.Errorf("GenerateImports() = %q, expected %q", result, test.expected)
-			}
-		})
 	}
 }
 
@@ -163,12 +126,6 @@ func TestNewStructParser(t *testing.T) {
 	}
 	if string(parser.fileContent) != string(content) {
 		t.Error("fileContent not set correctly")
-	}
-	// titleCaser is a value type, so we can't check for nil
-	// Just verify it works by using it
-	testResult := parser.titleCaser.String("test")
-	if testResult != "Test" {
-		t.Error("titleCaser not working correctly")
 	}
 }
 
@@ -497,5 +454,346 @@ type TestStruct struct {
 	}
 	if !strings.Contains(result, "timeout int") {
 		t.Errorf("Expected field without tag to be included: %s", result)
+	}
+}
+
+// TestInlineInterfaceSupport tests that inline interfaces are handled correctly
+func TestInlineInterfaceSupport(t *testing.T) {
+	src := `
+package test
+
+type StructWithInterface struct { //+gob:Constructor
+	name string
+	handler interface {
+		Process(string) error
+		Close() error
+	}
+}
+`
+
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "test.go", src, parser.ParseComments)
+	if err != nil {
+		t.Fatalf("Failed to parse source: %v", err)
+	}
+
+	sp := NewStructParser(fset, []byte(src))
+
+	// Find the StructWithInterface
+	var structType *ast.StructType
+	ast.Inspect(file, func(n ast.Node) bool {
+		if ts, ok := n.(*ast.TypeSpec); ok && ts.Name.Name == "StructWithInterface" {
+			if st, ok := ts.Type.(*ast.StructType); ok {
+				structType = st
+				return false
+			}
+		}
+		return true
+	})
+
+	if structType == nil {
+		t.Fatalf("Could not find StructWithInterface")
+	}
+
+	// Test that inline interface fields are processed correctly
+	for _, field := range structType.Fields.List {
+		for _, name := range field.Names {
+			if name.Name == "handler" {
+				// Check that it's recognized as an interface type
+				if _, ok := field.Type.(*ast.InterfaceType); !ok {
+					t.Errorf("Expected handler field to be interface type, got %T", field.Type)
+				}
+
+				// Test field type text generation
+				fieldTypeText := sp.fieldTypeText(field)
+				if !strings.Contains(fieldTypeText, "interface") {
+					t.Errorf("Expected field type to contain 'interface', got: %s", fieldTypeText)
+				}
+				if !strings.Contains(fieldTypeText, "Process(string) error") {
+					t.Errorf("Expected field type to contain method signature, got: %s", fieldTypeText)
+				}
+			}
+		}
+	}
+}
+
+// TestComplexInlineInterfaces tests various inline interface scenarios
+func TestComplexInlineInterfaces(t *testing.T) {
+	src := `
+package test
+
+import "io"
+
+type ComplexStruct struct { //+gob:Constructor
+	// Empty interface
+	any interface{}
+
+	// Single method interface
+	logger interface {
+		Log(string)
+	}
+
+	// Multi-method interface
+	processor interface {
+		Process([]byte) (int, error)
+		Validate() bool
+		Close() error
+	}
+
+	// Standard library interface
+	reader io.Reader
+
+	// Nested inline interface
+	service interface {
+		Handle(interface {
+			GetID() string
+		}) error
+	}
+}
+`
+
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "test.go", src, parser.ParseComments)
+	if err != nil {
+		t.Fatalf("Failed to parse source: %v", err)
+	}
+
+	sp := NewStructParser(fset, []byte(src))
+
+	// Find the ComplexStruct
+	var structType *ast.StructType
+	ast.Inspect(file, func(n ast.Node) bool {
+		if ts, ok := n.(*ast.TypeSpec); ok && ts.Name.Name == "ComplexStruct" {
+			if st, ok := ts.Type.(*ast.StructType); ok {
+				structType = st
+				return false
+			}
+		}
+		return true
+	})
+
+	if structType == nil {
+		t.Fatalf("Could not find ComplexStruct")
+	}
+
+	testCases := map[string]struct {
+		shouldBeInterface bool
+		expectedContent   []string
+	}{
+		"any": {
+			shouldBeInterface: true,
+			expectedContent:   []string{"interface{}"},
+		},
+		"logger": {
+			shouldBeInterface: true,
+			expectedContent:   []string{"interface", "Log(string)"},
+		},
+		"processor": {
+			shouldBeInterface: true,
+			expectedContent:   []string{"interface", "Process([]byte) (int, error)", "Validate() bool", "Close() error"},
+		},
+		"reader": {
+			shouldBeInterface: false,
+			expectedContent:   []string{"io.Reader"},
+		},
+		"service": {
+			shouldBeInterface: true,
+			expectedContent:   []string{"interface", "Handle(", "GetID() string"},
+		},
+	}
+
+	// Test each field
+	for _, field := range structType.Fields.List {
+		for _, name := range field.Names {
+			testCase, exists := testCases[name.Name]
+			if !exists {
+				continue
+			}
+
+			// Check interface type detection
+			_, isInterface := field.Type.(*ast.InterfaceType)
+			if isInterface != testCase.shouldBeInterface {
+				t.Errorf("Field %s: expected interface=%v, got %v", name.Name, testCase.shouldBeInterface, isInterface)
+			}
+
+			// Test field type text generation
+			fieldTypeText := sp.fieldTypeText(field)
+			for _, expectedContent := range testCase.expectedContent {
+				if !strings.Contains(fieldTypeText, expectedContent) {
+					t.Errorf("Field %s: expected field type to contain '%s', got: %s", name.Name, expectedContent, fieldTypeText)
+				}
+			}
+		}
+	}
+}
+
+// TestGetterAnnotationValidation tests that getter annotations are only allowed on lowercase fields
+func TestGetterAnnotationValidation(t *testing.T) {
+	testCases := []struct {
+		name        string
+		source      string
+		shouldError bool
+		errorMsg    string
+	}{
+		{
+			name: "Valid lowercase field with getter",
+			source: `
+package test
+
+type ValidStruct struct { //+gob:Constructor
+	name string //+gob:getter
+	age  int
+}
+`,
+			shouldError: false,
+		},
+		{
+			name: "Invalid uppercase field with getter",
+			source: `
+package test
+
+type InvalidStruct struct { //+gob:Constructor
+	Name string //+gob:getter
+	Age  int
+}
+`,
+			shouldError: true,
+			errorMsg:    "field 'Name' in struct 'InvalidStruct' has //+gob:getter annotation but starts with uppercase",
+		},
+		{
+			name: "Multiple fields - mixed valid and invalid",
+			source: `
+package test
+
+type MixedStruct struct { //+gob:Constructor
+	name string //+gob:getter  // Valid
+	Age  int    //+gob:getter  // Invalid
+}
+`,
+			shouldError: true,
+			errorMsg:    "field 'Age' in struct 'MixedStruct' has //+gob:getter annotation but starts with uppercase",
+		},
+		{
+			name: "Uppercase field without getter (should be fine)",
+			source: `
+package test
+
+type UppercaseStruct struct { //+gob:Constructor
+	Name string  // No getter annotation - this is fine
+	Age  int
+}
+`,
+			shouldError: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Create temporary file
+			tempFile, err := os.CreateTemp("", "test_*.go")
+			if err != nil {
+				t.Fatalf("Failed to create temp file: %v", err)
+			}
+			defer os.Remove(tempFile.Name())
+
+			if _, err := tempFile.WriteString(tc.source); err != nil {
+				t.Fatalf("Failed to write to temp file: %v", err)
+			}
+			tempFile.Close()
+
+			// Create config
+			config := &Config{
+				InputPath:             tempFile.Name(),
+				GenerateFor:           nil,
+				ConstructorVisibility: ConstructorExported,
+			}
+
+			// Test generateCodeForFile
+			outputFile := makeOutputFilename(tempFile.Name())
+			defer os.Remove(outputFile) // Clean up output file
+
+			err = generateCodeForFile(tempFile.Name(), outputFile, config)
+
+			if tc.shouldError {
+				if err == nil {
+					t.Errorf("Expected error but got none")
+				} else if !strings.Contains(err.Error(), tc.errorMsg) {
+					t.Errorf("Expected error message to contain '%s', got: %s", tc.errorMsg, err.Error())
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Expected no error but got: %v", err)
+				}
+			}
+		})
+	}
+}
+
+// TestFindGoFiles tests the findGoFiles function
+func TestFindGoFiles(t *testing.T) {
+	// Create a temporary directory structure for testing
+	tempDir := t.TempDir()
+
+	// Create test files
+	testFiles := map[string]string{
+		"models.go":                  "package test\ntype User struct{}",
+		"subdir/orders.go":           "package subdir\ntype Order struct{}",
+		"subdir/nested/inventory.go": "package nested\ntype Item struct{}",
+		"models_test.go":             "package test\nfunc TestUser(t *testing.T) {}",
+		"existing_gob.go":            "package test\n// Generated file",
+		"subdir/orders_gob.go":       "package subdir\n// Generated file",
+		"README.md":                  "# Documentation",
+		"config.json":                `{"key": "value"}`,
+	}
+
+	for filePath, content := range testFiles {
+		fullPath := filepath.Join(tempDir, filePath)
+		dir := filepath.Dir(fullPath)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatalf("Failed to create directory %s: %v", dir, err)
+		}
+		if err := os.WriteFile(fullPath, []byte(content), 0644); err != nil {
+			t.Fatalf("Failed to create test file %s: %v", fullPath, err)
+		}
+	}
+
+	// Test findGoFiles
+	goFiles, err := findGoFiles(tempDir)
+	if err != nil {
+		t.Fatalf("findGoFiles failed: %v", err)
+	}
+
+	// Expected files (should exclude test files and _gob files)
+	expectedFiles := []string{
+		filepath.Join(tempDir, "models.go"),
+		filepath.Join(tempDir, "subdir", "orders.go"),
+		filepath.Join(tempDir, "subdir", "nested", "inventory.go"),
+	}
+
+	if len(goFiles) != len(expectedFiles) {
+		t.Errorf("Expected %d files, got %d", len(expectedFiles), len(goFiles))
+	}
+
+	// Convert to sets for comparison
+	expectedSet := make(map[string]bool)
+	for _, f := range expectedFiles {
+		expectedSet[f] = true
+	}
+
+	foundSet := make(map[string]bool)
+	for _, f := range goFiles {
+		foundSet[f] = true
+	}
+
+	for expected := range expectedSet {
+		if !foundSet[expected] {
+			t.Errorf("Expected file not found: %s", expected)
+		}
+	}
+
+	for found := range foundSet {
+		if !expectedSet[found] {
+			t.Errorf("Unexpected file found: %s", found)
+		}
 	}
 }
