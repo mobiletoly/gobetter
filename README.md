@@ -1,8 +1,9 @@
 # gobetter - Go Builder Pattern Generator
 
-**gobetter** is a code generator that creates type-safe builder patterns for Go structs, enforcing mandatory fields at compile time through a fluent API similar to named arguments.
+**gobetter** is a code generator that creates type-safe builder patterns for Go structs, enforcing
+mandatory fields at compile time through a fluent API similar to named arguments.
 
-## ✨ Features
+## Features
 
 - **Compile-time safety** - Missing mandatory fields cause compilation errors
 - **IDE-friendly** - Excellent autocomplete support showing only the next required field
@@ -11,12 +12,12 @@
 - **Struct tag preservation** - Maintains JSON, validation, and other struct tags
 - **Flexible configuration** - Control visibility, optional fields, and generation scope
 
-## 🎬 Demo
+**IDE Autocomplete (no plugin needed)** - Only shows the next mandatory field:
 
-**IDE Autocomplete** - Only shows the next mandatory field:
 ![Autocomplete](autocomplete.png)
 
 **Compile-time Validation** - Missing fields cause compilation errors:
+
 ![Missing Field error](error_sample.png)
 
 ## The Problem
@@ -28,7 +29,7 @@ type Person struct {
     FirstName   string
     LastName    string
     Age         int
-    Description string // optional field
+    Description string
 }
 
 // Traditional struct initialization
@@ -40,19 +41,65 @@ person := Person{
 }
 ```
 
-**Problems with traditional approaches:**
-- ❌ Easy to forget required fields
-- ❌ No compile-time validation
-- ❌ Manual constructor functions need constant maintenance
-- ❌ Parameter order mistakes (no named parameters in Go)
+**Where this breaks down:**
+- Missing required fields still compile (zero values sneak in).
+- Refactors are risky: adding a required field means hunting every construction site.
+- Constructors are order‑sensitive and error‑prone; many code generators don’t emit them at all.
+- IDEs can’t guide the next required field.
 
 ## The Solution
+
+```go
+p := NewPersonBuilder().
+    FirstName("John").
+    LastName("Doe").
+    DOB(time.Date(1990, 1, 1, 0, 0, 0, 0, time.UTC)).
+    Build()
+```
 
 **gobetter** generates type-safe builder patterns that:
 - ✅ **Enforce required fields** at compile time
 - ✅ **Prevent field order mistakes** through method chaining
 - ✅ **Auto-update** when you add/remove fields
 - ✅ **Provide excellent IDE support** with autocomplete
+
+## Why builders instead of struct literals or `New...()` constructors?
+
+### Plain struct literals / direct assignment
+
+- **Silent omissions.** With keyed struct literals, leaving out a field is legal and compiles; the
+  field is just the zero value. If that field is *logically required*, you won’t find out until
+  runtime.
+- **Refactor pain.** When you add a new required field, you must manually audit every construction
+  site. Miss one, and you ship a subtle bug. The step-builder makes this a **compile error** until
+  the new step is provided.
+- **No guidance in IDEs.** Autocomplete can’t tell you what’s required next; the step-chain exposes
+  exactly one valid next method.
+
+### Hand-written `NewX(...)` constructors
+
+- **Argument soup.** Go has no named parameters; long `NewX(a, b, c, d)` calls are order-sensitive
+  and easy to mix up—especially when types repeat (`string, string, time.Time`). The compiler won’t
+  catch swapped arguments of the same type.
+- **Generated code rarely ships constructors.** Tools like Swagger/OpenAPI or ORM generators
+  typically emit structs without `New...` helpers. **gobetter** can be applied to those externally
+  generated files (e.g., `-generate-for=exported`) to produce builders **without modifying the
+  original code**.
+
+### What you get with gobetter
+
+- **Compile-time guarantees**: can’t build until all mandatory fields are provided.
+- **Refactor-friendly**: adding/removing required fields updates the chain; callers won’t compile
+  until fixed.
+- **Great DX**: fluent steps + precise autocomplete; optionals can be skipped or added later.
+- **Inner struct support**: generates builders for inner structs with clean naming.
+
+## How it works (in one line)
+
+gobetter generates a chain of tiny step types (each `struct{ root *T }`) that expose only the next
+valid setter. Setters are trivial assignments that Go inlines, so no performance of memory penalty;
+the step values stay on the stack, and `Build()` returns the single `*T` you’re constructing. Net
+result: compile‑time required with essentially zero runtime overhead.
 
 ## Installation
 
@@ -129,7 +176,7 @@ fmt.Println(person.Score)       // 85 (public field, no function needed)
 fmt.Println(person.Description) // "Software engineer"
 ```
 
-## 📝 Annotations Reference
+## Annotations Reference
 
 | Annotation           | Description                              | Example                                   |
 |----------------------|------------------------------------------|-------------------------------------------|
@@ -139,7 +186,7 @@ fmt.Println(person.Description) // "Software engineer"
 | `//+gob:acronym`     | Treat field as acronym (DOB vs Dob)      | `dob string //+gob:getter +gob:acronym`   |
 | `//+gob:_`           | Mark field as optional (skip in builder) | `description string //+gob:_`             |
 
-## 🏗️ Nested Structs Support
+## Nested Structs Support
 
 **gobetter** supports nested structs with clean naming and type aliases:
 
