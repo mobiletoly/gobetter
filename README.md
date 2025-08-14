@@ -109,12 +109,11 @@ Install **gobetter** as standalone utility:
 go install github.com/mobiletoly/gobetter@latest
 ```
 
-or (even better) install **gobetter** to use as tool in your go.mod:
+or if you use Go 1.24+ then you have a better alternative to use **gobetter** as
+a tool, instead of installing it system-wide:
 
-```
-tool (
-    github.com/mobiletoly/gobetter
-)
+```bash
+go get -tool github.com/mobiletoly/gobetter@latest
 ```
 
 
@@ -127,8 +126,11 @@ Add annotations to your Go structs:
 ```go
 package main
 
-// Put on top of the file
+/* Put this line on top of the file if you installed gobetter as standalone utility */
 //go:generate gobetter -input $GOFILE
+
+/* OR put this line on top of the file if you installed gobetter as tool in your go.mod */
+//go:generate go tool gobetter -input $GOFILE
 
 type Person struct { //+gob:Constructor
 	FirstName   string
