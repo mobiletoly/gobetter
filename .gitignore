@@ -26,3 +26,5 @@
 bin/
 
 *_gob.go
+
+CODEBASE_OVERVIEW.md

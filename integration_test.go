@@ -124,6 +124,7 @@ type Plain struct {
 				InputPath:             inputFile,
 				GenerateFor:           nil,
 				ConstructorVisibility: ConstructorExported,
+				Sort:                  SortSeq,
 			}
 			outputFile := makeOutputFilename(inputFile)
 
@@ -231,6 +232,7 @@ type unexportedStruct struct {
 				InputPath:             inputFile,
 				GenerateFor:           &generateFor,
 				ConstructorVisibility: ConstructorExported,
+				Sort:                  SortSeq,
 			}
 			outputFile := makeOutputFilename(inputFile)
 
@@ -297,6 +299,7 @@ type ComplexStruct struct { //+gob:Constructor
 		InputPath:             inputFile,
 		GenerateFor:           nil,
 		ConstructorVisibility: ConstructorExported,
+		Sort:                  SortSeq,
 	}
 	outputFile := makeOutputFilename(inputFile)
 

@@ -232,11 +232,12 @@ go test -bench . -benchmem -run ^$ -count 5 ./...
 
 ### Command Line Flags
 
-| Flag            | Values                     | Description                  |
-|-----------------|----------------------------|------------------------------|
-| `-input`        | `<path>`                   | Input file or directory      |
-| `-generate-for` | `all\|exported\|annotated` | Which structs to process     |
-| `-constructor`  | `exported\|package\|none`  | Constructor visibility level |
+| Flag            | Values                     | Description                        |
+|-----------------|----------------------------|------------------------------------|
+| `-input`        | `<path>`                   | Input file or directory            |
+| `-generate-for` | `all\|exported\|annotated` | Which structs to process           |
+| `-constructor`  | `exported\|package\|none`  | Constructor visibility level       |
+| `-sort`         | `seq\|abc`                 | Builder step order (`abc` default) |
 
 ### Examples
 
@@ -250,6 +251,39 @@ gobetter -input=models.go -generate-for=exported
 # Generate package-level constructors for all structs
 gobetter -input=models.go -generate-for=all -constructor=package
 ```
+
+### Sorting
+
+With command-line flag `-sort=seq`, the builder steps maintain the order of struct fields as
+declared. With `-sort=abc` (the default), fields are sorted alphabetically. 
+
+For example for this structure:
+```go
+type Person struct {
+    FirstName string
+    LastName  string
+    Age       int
+}
+```
+
+the `-sort=seq` will generate:
+```go
+bld := NewPersonBuilder().
+    FirstName("John").
+    LastName("Doe").
+    Age(40).
+    Build()
+```
+
+and `-sort=abc` will generate:
+```go
+bld := NewPersonBuilder().
+    Age(40).
+    FirstName("John").
+    LastName("Doe").
+    Build()
+```
+
 
 ## Optional IDE Integration
 

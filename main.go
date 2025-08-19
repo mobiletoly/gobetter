@@ -9,6 +9,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"unicode"
 
@@ -20,6 +21,7 @@ type Config struct {
 	InputPath             string // Can be file or directory
 	GenerateFor           *string
 	ConstructorVisibility string
+	Sort                  string
 }
 
 // fileNameWithoutExt returns the filename without its extension
@@ -101,6 +103,10 @@ func parseCommandLineArgs() (*Config, error) {
 |  package   - package-level (lower-cased) constructors will be created
 |  none      - no constructors will be created
 `)
+	sortPtr := flag.String(FlagSort, SortAbc,
+		`sort order for builder sequence:
+|  seq      - use struct declaration order
+|  abc      - sort fields alphabetically (default)`)
 	versionPtr := flag.Bool(FlagVersion, false, "print current version")
 
 	flag.Parse()
@@ -112,6 +118,7 @@ func parseCommandLineArgs() (*Config, error) {
 
 	config := &Config{
 		InputPath: *inputPathPtr,
+		Sort:      *sortPtr,
 	}
 
 	if !isFlagPassed(FlagInput) {
@@ -138,6 +145,14 @@ func parseCommandLineArgs() (*Config, error) {
 		config.ConstructorVisibility = *constructorVisibilityPtr
 	default:
 		return nil, errors.New(ErrInvalidConstructor)
+	}
+
+	// Validate sort flag
+	switch *sortPtr {
+	case SortSeq, SortAbc:
+		// ok
+	default:
+		return nil, errors.New(ErrInvalidSort)
 	}
 	return config, nil
 }
@@ -518,6 +533,16 @@ func generateCodeForFile(inputFile, outputFile string, config *Config) error {
 					bld.WriteString(structField.GenerateGetter())
 				}
 			}
+		}
+
+		// Apply sorting before code emission based on config.Sort
+		if config.Sort == SortAbc {
+			sort.SliceStable(structFields, func(i, j int) bool {
+				// Compare by exported method name (respects acronym setting)
+				li := exportName(structFields[i].FieldName, structFields[i].Acronym)
+				lj := exportName(structFields[j].FieldName, structFields[j].Acronym)
+				return li < lj
+			})
 		}
 
 		for i, field := range structFields {

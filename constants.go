@@ -4,7 +4,7 @@ import "regexp"
 
 // Version information
 const (
-	Version = "0.13.0"
+	Version = "0.14.0"
 )
 
 // File extensions and suffixes
@@ -19,6 +19,7 @@ const (
 	FlagGenerateFor = "generate-for"
 	FlagReceiver    = "receiver"
 	FlagConstructor = "constructor"
+	FlagSort        = "sort"
 	FlagVersion     = "print-version"
 )
 
@@ -40,6 +41,12 @@ const (
 	ConstructorExported = "exported"
 	ConstructorPackage  = "package"
 	ConstructorNone     = "none"
+)
+
+// Sort order values
+const (
+	SortSeq = "seq" // keep struct declaration order
+	SortAbc = "abc" // sort alphabetically by field name (default)
 )
 
 // Gob annotation patterns
@@ -72,6 +79,7 @@ const (
 	ErrInvalidGenerateFor = "Error: \"generate-for\" flag must be \"all\", \"exported\", or \"annotated\""
 	ErrInvalidReceiver    = "Error: \"receiver\" flag must be \"pointer\" or \"value\""
 	ErrInvalidConstructor = "Error: \"constructor\" flag must be \"exported\", \"package\", or \"none\""
+	ErrInvalidSort        = "Error: \"sort\" flag must be \"seq\" or \"abc\""
 	ErrReadFile           = "error: failed to read file %s: %v"
 )
 
