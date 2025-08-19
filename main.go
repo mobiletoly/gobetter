@@ -541,7 +541,7 @@ func generateCodeForFile(inputFile, outputFile string, config *Config) error {
 				// Compare by exported method name (respects acronym setting)
 				li := exportName(structFields[i].FieldName, structFields[i].Acronym)
 				lj := exportName(structFields[j].FieldName, structFields[j].Acronym)
-				return li < lj
+				return strings.ToLower(li) < strings.ToLower(lj)
 			})
 		}
 

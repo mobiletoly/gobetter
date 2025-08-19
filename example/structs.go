@@ -4,7 +4,7 @@ import (
 	"time"
 )
 
-//go:generate ../gobetter -input $GOFILE
+//go:generate ../gobetter -input $GOFILE -sort=abc
 
 type S struct { //+gob:Constructor
 	Identifier string
