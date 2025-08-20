@@ -355,6 +355,28 @@ func getTypeString(expr ast.Expr, parentPath string) string {
 	}
 }
 
+// deriveEmbeddedFieldName returns the effective field name for an embedded (anonymous) field
+// based on its type expression. For example:
+//
+//	Person            -> "Person"
+//	*Person           -> "Person"
+//	pkg.Type          -> "Type"
+//	*pkg.Type         -> "Type"
+//
+// If the expression does not correspond to a named type, returns an empty string.
+func deriveEmbeddedFieldName(expr ast.Expr) string {
+	switch t := expr.(type) {
+	case *ast.Ident:
+		return t.Name
+	case *ast.StarExpr:
+		return deriveEmbeddedFieldName(t.X)
+	case *ast.SelectorExpr:
+		return t.Sel.Name
+	default:
+		return ""
+	}
+}
+
 // generateCode generates the builder code for all input files based on the configuration
 func generateCode(config *Config) error {
 	inputFiles, err := getInputFiles(config.InputPath)
@@ -500,6 +522,40 @@ func generateCodeForFile(inputFile, outputFile string, config *Config) error {
 			} else {
 				fieldTypeText = sp.fieldTypeText(field)
 			}
+			// If this is an embedded (anonymous) field, Names will be nil.
+			// In that case, synthesize the logical field name from the type
+			// (e.g., Person, *pkg.Type -> Type, pkg.Type -> Type).
+			if len(field.Names) == 0 {
+				embeddedName := deriveEmbeddedFieldName(field.Type)
+				if embeddedName != "" {
+					// Validate getter annotation usage for embedded fields
+					if sp.fieldGetter(field) {
+						if unicode.IsUpper(rune(embeddedName[0])) {
+							return fmt.Errorf("field '%s' in struct '%s' has //+gob:getter annotation but starts with uppercase. Getter annotation should only be used with private (lowercase) fields", embeddedName, structName)
+						}
+					}
+
+					structField := StructField{
+						StructFlags:   &structFlags,
+						StructName:    structName,
+						FieldName:     embeddedName,
+						FieldTypeText: fieldTypeText,
+						Acronym:       sp.fieldAcronym(field),
+					}
+					if structFlags.Visibility != NoVisibility {
+						if !sp.fieldOptional(field) {
+							structFields = append(structFields, &structField)
+						}
+					}
+					// Only generate getters for top-level structs; skip for inner alias types
+					if sp.fieldGetter(field) && structInfo.TypeSpec != nil {
+						bld.WriteString(structField.GenerateGetter())
+					}
+				}
+				// Move to next field
+				continue
+			}
+
 			for _, fieldName := range field.Names {
 				// When using -generate-for=exported, skip non-exported inner struct fields
 				if isInnerStruct && config.GenerateFor != nil && *config.GenerateFor == GenerateForExported {

@@ -24,6 +24,11 @@ type Person struct { //+gob:Constructor
 	Bio       *string //+gob:_
 }
 
+type PersonWithAge struct { //+gob:Constructor
+	*Person
+	Age int
+}
+
 // Company represents a business entity
 type Company struct { //+gob:Constructor
 	Name        string  `json:"name"`
