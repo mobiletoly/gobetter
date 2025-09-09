@@ -3,6 +3,40 @@
 **gobetter** is a code generator that creates type-safe builder patterns for Go structs, enforcing
 mandatory fields at compile time through a fluent API similar to named arguments.
 
+```go
+type Config struct { //+gob:Constructor
+    Env string
+    ListenPort int
+
+    Database struct { //+gob:Constructor
+        Driver string
+        Host   string
+        Port   int
+    }
+}
+```
+
+```shell
+go generate ./...
+```
+
+**Generated builders:**
+```go
+// Clean naming without underscores
+db := NewConfigDatabaseBuilder().
+    Driver("postgres").
+    Host("db.example.com").
+    Port(5432).
+    Build()
+
+c := NewConfigBuilder().
+    Database(*db).
+	Env("dev").
+	ListenPort(8080).
+    Build()
+```
+
+
 ## Features
 
 - **Compile-time safety** - Missing mandatory fields cause compilation errors
@@ -51,9 +85,9 @@ person := Person{
 
 ```go
 p := NewPersonBuilder().
+    DOB(time.Date(1990, 1, 1, 0, 0, 0, 0, time.UTC)).
     FirstName("John").
     LastName("Doe").
-    DOB(time.Date(1990, 1, 1, 0, 0, 0, 0, time.UTC)).
     Build()
 ```
 
@@ -160,10 +194,10 @@ annotated structs.
 
 ```go
 person := NewPersonBuilder().
+    DOB("01/01/1990").
+    Email("john.doe@example.com").
     FirstName("John").
     LastName("Doe").
-	Email("john.doe@example.com").
-    DOB("01/01/1990").
     Score(85).
     Build()
 
@@ -185,48 +219,8 @@ fmt.Println(person.Description) // "Software engineer"
 | `//+gob:Constructor` | Generate builder for struct              | `type Person struct { //+gob:Constructor` |
 | `//+gob:constructor` | Generate package-level builder           | `type person struct { //+gob:constructor` |
 | `//+gob:getter`      | Generate getter for private field        | `name string //+gob:getter`               |
-| `//+gob:acronym`     | Treat field as acronym (DOB vs Dob)      | `dob string //+gob:getter +gob:acronym`   |
+| `//+gob:acronym`     | Treat field as acronym (DOB vs Dob)      | `dob string //+gob:acronym`               |
 | `//+gob:_`           | Mark field as optional (skip in builder) | `description string //+gob:_`             |
-
-## Nested Structs Support
-
-**gobetter** supports nested structs with clean naming and type aliases:
-
-```go
-type Config struct { //+gob:Constructor
-    host string //+gob:getter
-    port int    //+gob:getter
-
-    Database struct { //+gob:Constructor
-        Driver string
-        Host   string
-        Port   int
-    }
-}
-```
-
-**Generated builders:**
-```go
-// Clean naming without underscores
-database := NewConfigDatabaseBuilder().
-    Driver("postgres").
-    Host("db.example.com").
-    Port(5432).
-    Build()
-
-config := NewConfigBuilder().
-    Host("api.example.com").
-    Port(8080).
-    Database(*database).
-    Build()
-```
-
-Run:
-
-```bash
-go generate ./...
-go test -bench . -benchmem -run ^$ -count 5 ./...
-```
 
 ## Configuration Options
 
