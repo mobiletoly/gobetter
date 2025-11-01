@@ -1,6 +1,10 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
@@ -15,6 +19,10 @@ import (
 
 	"golang.org/x/tools/imports"
 )
+
+const signatureCommentPrefix = "// gobetter:signature="
+
+var errSignatureNotFound = errors.New("signature not found")
 
 // Config holds the configuration for the gobetter generator
 type Config struct {
@@ -136,7 +144,7 @@ func parseCommandLineArgs() (*Config, error) {
 	case GenerateForAnnotated:
 		config.GenerateFor = nil
 	default:
-		return nil, errors.New(ErrInvalidGenerateFor)
+		return nil, fmt.Errorf(ErrInvalidGenerateFor, *generateForPtr)
 	}
 
 	// Validate constructor flag
@@ -144,7 +152,7 @@ func parseCommandLineArgs() (*Config, error) {
 	case ConstructorExported, ConstructorPackage, ConstructorNone:
 		config.ConstructorVisibility = *constructorVisibilityPtr
 	default:
-		return nil, errors.New(ErrInvalidConstructor)
+		return nil, fmt.Errorf(ErrInvalidConstructor, *constructorVisibilityPtr)
 	}
 
 	// Validate sort flag
@@ -152,7 +160,7 @@ func parseCommandLineArgs() (*Config, error) {
 	case SortSeq, SortAbc:
 		// ok
 	default:
-		return nil, errors.New(ErrInvalidSort)
+		return nil, fmt.Errorf(ErrInvalidSort, *sortPtr)
 	}
 	return config, nil
 }
@@ -169,11 +177,14 @@ func isFlagPassed(name string) bool {
 
 // StructInfo holds information about a discovered struct
 type StructInfo struct {
-	Name       string
-	StructType *ast.StructType
-	TypeSpec   *ast.TypeSpec
-	ParentPath string     // For inner structs, this holds the parent path like "OuterStruct.Config"
-	Field      *ast.Field // For inner structs, this holds the field that contains the struct
+	Name          string
+	AliasName     string
+	StructType    *ast.StructType
+	TypeSpec      *ast.TypeSpec
+	ParentPath    string     // For inner structs, this holds the parent path like "OuterStruct.Config"
+	Field         *ast.Field // For inner structs, this holds the field that contains the struct
+	TypeParamDecl string
+	TypeParamUse  string
 }
 
 // findAllStructs recursively finds all struct definitions in the AST
@@ -184,16 +195,20 @@ func findAllStructs(node ast.Node, parentPath string) []*StructInfo {
 		switch node := n.(type) {
 		case *ast.TypeSpec:
 			if st, ok := node.Type.(*ast.StructType); ok {
+				paramDecl, paramUse := extractTypeParamStrings(node)
 				structInfo := &StructInfo{
-					Name:       node.Name.Name,
-					StructType: st,
-					TypeSpec:   node,
-					ParentPath: parentPath,
+					Name:          node.Name.Name,
+					AliasName:     node.Name.Name,
+					StructType:    st,
+					TypeSpec:      node,
+					ParentPath:    parentPath,
+					TypeParamDecl: paramDecl,
+					TypeParamUse:  paramUse,
 				}
 				structs = append(structs, structInfo)
 
 				// Look for inner structs within this struct
-				innerStructs := findInnerStructs(st, node.Name.Name)
+				innerStructs := findInnerStructs(st, structInfo)
 				structs = append(structs, innerStructs...)
 			}
 		}
@@ -204,7 +219,7 @@ func findAllStructs(node ast.Node, parentPath string) []*StructInfo {
 }
 
 // findInnerStructs finds struct definitions within struct fields
-func findInnerStructs(st *ast.StructType, parentName string) []*StructInfo {
+func findInnerStructs(st *ast.StructType, parentInfo *StructInfo) []*StructInfo {
 	var structs []*StructInfo
 
 	for _, field := range st.Fields.List {
@@ -223,19 +238,22 @@ func findInnerStructs(st *ast.StructType, parentName string) []*StructInfo {
 			// This is an anonymous inner struct (direct or pointer)
 			for _, name := range field.Names {
 				fieldName := name.Name
-				fullName := parentName + fieldName
+				fullName := parentInfo.Name + fieldName
 
 				structInfo := &StructInfo{
-					Name:       fullName,
-					StructType: structType,
-					TypeSpec:   nil, // Inner structs don't have TypeSpec
-					ParentPath: parentName + "." + fieldName,
-					Field:      field, // Store the field for comment access
+					Name:          fullName,
+					AliasName:     fullName,
+					StructType:    structType,
+					TypeSpec:      nil, // Inner structs don't have TypeSpec
+					ParentPath:    parentInfo.Name + "." + fieldName,
+					Field:         field, // Store the field for comment access
+					TypeParamDecl: parentInfo.TypeParamDecl,
+					TypeParamUse:  parentInfo.TypeParamUse,
 				}
 				structs = append(structs, structInfo)
 
 				// Recursively find nested inner structs
-				nestedStructs := findInnerStructs(structType, fullName)
+				nestedStructs := findInnerStructs(structType, structInfo)
 				structs = append(structs, nestedStructs...)
 			}
 		}
@@ -245,114 +263,86 @@ func findInnerStructs(st *ast.StructType, parentName string) []*StructInfo {
 }
 
 // generateInnerStructTypeDefinition generates a type alias for an inner struct
-func generateInnerStructTypeDefinition(structInfo *StructInfo, allStructs []*StructInfo) string {
+func generateInnerStructTypeDefinition(structInfo *StructInfo, aliasInfos map[*ast.StructType]*StructInfo) string {
 	var bld strings.Builder
 
 	// Generate type alias instead of type definition for compatibility
-	structTypeString := buildStructTypeStringFromAST(structInfo.StructType, allStructs)
-	bld.WriteString(fmt.Sprintf("type %s = %s\n\n", structInfo.Name, structTypeString))
+	formatter := aliasAwareFormatter(aliasInfos, structInfo.StructType)
+	structTypeString := buildStructTypeStringFromAST(structInfo.StructType, formatter)
+	aliasName := structInfo.AliasName
+	if structInfo.TypeParamDecl != "" {
+		aliasName += structInfo.TypeParamDecl
+	}
+	bld.WriteString(fmt.Sprintf("type %s = %s\n\n", aliasName, structTypeString))
 
 	return bld.String()
 }
 
-// buildStructTypeStringFromAST builds a struct type string from AST with proper nested type handling
-func buildStructTypeStringFromAST(st *ast.StructType, allStructs []*StructInfo) string {
-	var fieldParts []string
-
-	for _, field := range st.Fields.List {
-		fieldType := getFieldTypeFromASTWithAliases(field.Type, allStructs)
-
-		// Extract struct tag if present
-		var tag string
-		if field.Tag != nil {
-			tag = " " + field.Tag.Value // field.Tag.Value includes the backticks
-		}
-
-		for _, name := range field.Names {
-			fieldParts = append(fieldParts, fmt.Sprintf("%s %s%s", name.Name, fieldType, tag))
-		}
-	}
-
-	return fmt.Sprintf("struct { %s }", strings.Join(fieldParts, "; "))
+// buildStructTypeStringFromAST builds a struct type string from AST
+func buildStructTypeStringFromAST(st *ast.StructType, formatter *TypeFormatter) string {
+	return formatter.StructHandler(formatter, st)
 }
 
-// getFieldTypeFromASTWithAliases extracts field type from AST, using type aliases when available
-func getFieldTypeFromASTWithAliases(expr ast.Expr, allStructs []*StructInfo) string {
-	switch t := expr.(type) {
-	case *ast.Ident:
-		return t.Name
-	case *ast.StarExpr:
-		return "*" + getFieldTypeFromASTWithAliases(t.X, allStructs)
-	case *ast.ArrayType:
-		return "[]" + getFieldTypeFromASTWithAliases(t.Elt, allStructs)
-	case *ast.MapType:
-		keyType := getFieldTypeFromASTWithAliases(t.Key, allStructs)
-		valueType := getFieldTypeFromASTWithAliases(t.Value, allStructs)
-		return fmt.Sprintf("map[%s]%s", keyType, valueType)
-	case *ast.SelectorExpr:
-		pkg := getFieldTypeFromASTWithAliases(t.X, allStructs)
-		return fmt.Sprintf("%s.%s", pkg, t.Sel.Name)
-	case *ast.InterfaceType:
-		if len(t.Methods.List) == 0 {
-			return "interface{}"
+func ensureUniqueAlias(base string, counts map[string]int) string {
+	if counts == nil {
+		counts = make(map[string]int)
+	}
+	if counts[base] == 0 {
+		counts[base] = 1
+		return base
+	}
+
+	suffix := counts[base]
+	for {
+		suffix++
+		candidate := fmt.Sprintf("%s_%d", base, suffix)
+		if counts[candidate] == 0 {
+			counts[base] = suffix
+			counts[candidate] = 1
+			return candidate
 		}
-		return "interface{}" // Simplified
-	case *ast.StructType:
-		// For nested inner structs, check if we have a type alias
-		// For now, recursively build the struct type
-		return buildStructTypeStringFromAST(t, allStructs)
-	default:
-		return "interface{}" // Fallback
 	}
 }
 
-// getFieldTypeForInnerStruct gets the correct field type for inner struct fields
-func getFieldTypeForInnerStruct(field *ast.Field, parentStructName string, allStructs []*StructInfo) string {
-	switch field.Type.(type) {
-	case *ast.StructType:
-		// This is a nested inner struct - find its generated name
-		for _, name := range field.Names {
-			expectedName := parentStructName + "_" + name.Name
-			for _, s := range allStructs {
-				if s.Name == expectedName {
-					return expectedName
-				}
+func aliasAwareFormatter(aliasInfos map[*ast.StructType]*StructInfo, exclude *ast.StructType) *TypeFormatter {
+	formatter := newDefaultTypeFormatter()
+	if aliasInfos != nil {
+		formatter.AliasResolver = func(st *ast.StructType) (string, bool) {
+			if st == exclude {
+				return "", false
+			}
+			if info, ok := aliasInfos[st]; ok && info != nil {
+				return info.AliasName + info.TypeParamUse, true
+			}
+			return "", false
+		}
+	}
+	return formatter
+}
+
+func extractTypeParamStrings(typeSpec *ast.TypeSpec) (string, string) {
+	if typeSpec == nil || typeSpec.TypeParams == nil || typeSpec.TypeParams.NumFields() == 0 {
+		return "", ""
+	}
+	formatter := newDefaultTypeFormatter()
+	var declParts []string
+	var usageParts []string
+	for _, field := range typeSpec.TypeParams.List {
+		constraint := "any"
+		if field.Type != nil {
+			if formatted := formatter.Format(field.Type); formatted != "" {
+				constraint = formatted
 			}
 		}
-		return "interface{}" // Fallback
-	default:
-		return getTypeString(field.Type, parentStructName)
-	}
-}
-
-// getTypeString recursively extracts type string from ast.Expr
-func getTypeString(expr ast.Expr, parentPath string) string {
-	switch t := expr.(type) {
-	case *ast.Ident:
-		return t.Name
-	case *ast.StarExpr:
-		return "*" + getTypeString(t.X, parentPath)
-	case *ast.ArrayType:
-		return "[]" + getTypeString(t.Elt, parentPath)
-	case *ast.MapType:
-		keyType := getTypeString(t.Key, parentPath)
-		valueType := getTypeString(t.Value, parentPath)
-		return fmt.Sprintf("map[%s]%s", keyType, valueType)
-	case *ast.SelectorExpr:
-		pkg := getTypeString(t.X, parentPath)
-		return fmt.Sprintf("%s.%s", pkg, t.Sel.Name)
-	case *ast.InterfaceType:
-		if len(t.Methods.List) == 0 {
-			return "interface{}"
+		for _, name := range field.Names {
+			usageParts = append(usageParts, name.Name)
+			declParts = append(declParts, fmt.Sprintf("%s %s", name.Name, constraint))
 		}
-		return "interface{}" // Simplified
-	case *ast.StructType:
-		// This is an inner struct - we need to generate a type name for it
-		// For now, return a placeholder that will be replaced
-		return "INNER_STRUCT_PLACEHOLDER"
-	default:
-		return "interface{}" // Fallback
 	}
+	if len(declParts) == 0 {
+		return "", ""
+	}
+	return "[" + strings.Join(declParts, ", ") + "]", "[" + strings.Join(usageParts, ", ") + "]"
 }
 
 // deriveEmbeddedFieldName returns the effective field name for an embedded (anonymous) field
@@ -375,6 +365,50 @@ func deriveEmbeddedFieldName(expr ast.Expr) string {
 	default:
 		return ""
 	}
+}
+
+func computeSignature(fileContent []byte, config *Config) string {
+	h := sha256.New()
+	h.Write([]byte(Version))
+	h.Write([]byte{0})
+	h.Write(fileContent)
+	h.Write([]byte{0})
+
+	generateFor := GenerateForAnnotated
+	if config.GenerateFor != nil {
+		generateFor = *config.GenerateFor
+	}
+	h.Write([]byte(generateFor))
+	h.Write([]byte{0})
+	h.Write([]byte(config.ConstructorVisibility))
+	h.Write([]byte{0})
+	h.Write([]byte(config.Sort))
+
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+func loadExistingSignature(path string) (string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if strings.HasPrefix(line, signatureCommentPrefix) {
+			value := strings.TrimSpace(strings.TrimPrefix(line, signatureCommentPrefix))
+			return value, nil
+		}
+		if strings.HasPrefix(line, "package ") {
+			break
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return "", err
+	}
+	return "", errSignatureNotFound
 }
 
 // generateCode generates the builder code for all input files based on the configuration
@@ -409,6 +443,16 @@ func generateCodeForFile(inputFile, outputFile string, config *Config) error {
 	if err != nil {
 		return fmt.Errorf(ErrReadFile, inputFile, err)
 	}
+	signature := computeSignature(fileContent, config)
+
+	existingSignature, sigErr := loadExistingSignature(outputFile)
+	if sigErr == nil && existingSignature == signature {
+		fmt.Println("    Input unchanged; skipping generation")
+		return nil
+	}
+	if sigErr != nil && !errors.Is(sigErr, os.ErrNotExist) && !errors.Is(sigErr, errSignatureNotFound) {
+		return fmt.Errorf("failed to read existing signature: %w", sigErr)
+	}
 
 	fset := token.NewFileSet()
 	astFile, err := parser.ParseFile(fset, inputFile, nil, parser.ParseComments)
@@ -419,14 +463,25 @@ func generateCodeForFile(inputFile, outputFile string, config *Config) error {
 	sp := NewStructParser(fset, fileContent)
 
 	var bld strings.Builder
-	bld.WriteString(GeneratePackage(astFile))
+	bld.WriteString(GeneratePackage(astFile, signature))
 	//bld.WriteString(GenerateImports(astFile))
 
 	// Find all structs (including inner structs)
 	allStructs := findAllStructs(astFile, "")
 
-	// Generate type definitions for inner structs that have constructor annotations
-	// or are exported when using -generate-for=exported
+	aliasInfoMap := make(map[*ast.StructType]*StructInfo)
+	aliasNameCounts := make(map[string]int)
+	for _, info := range allStructs {
+		if info.AliasName == "" {
+			info.AliasName = info.Name
+		}
+		if info.TypeSpec != nil {
+			aliasNameCounts[info.AliasName] = 1
+		}
+	}
+	var aliasList []*StructInfo
+
+	// Identify inner structs requiring type aliases and record them
 	for _, structInfo := range allStructs {
 		if structInfo.TypeSpec == nil { // This is an inner struct
 			// Check if this inner struct has constructor annotation
@@ -448,15 +503,24 @@ func generateCodeForFile(inputFile, outputFile string, config *Config) error {
 			}
 
 			if shouldGenerateType {
-				bld.WriteString(generateInnerStructTypeDefinition(structInfo, allStructs))
+				structInfo.AliasName = ensureUniqueAlias(structInfo.AliasName, aliasNameCounts)
+				aliasInfoMap[structInfo.StructType] = structInfo
+				aliasList = append(aliasList, structInfo)
 			}
 		}
 	}
+
+	for _, info := range aliasList {
+		bld.WriteString(generateInnerStructTypeDefinition(info, aliasInfoMap))
+	}
+
+	sp.SetAliasMap(aliasInfoMap)
 
 	// Process all structs (both top-level and inner structs with constructor annotations)
 	for _, structInfo := range allStructs {
 		structName := structInfo.Name
 		st := structInfo.StructType
+		typeParamDecl, typeParamUse := extractTypeParamStrings(structInfo.TypeSpec)
 
 		// Get constructor flags based on struct type
 		var structFlags StructFlags
@@ -518,7 +582,7 @@ func generateCodeForFile(inputFile, outputFile string, config *Config) error {
 
 			if isInnerStruct {
 				// For inner structs, check if we have a generated type alias
-				fieldTypeText = sp.getInnerStructFieldTypeWithAlias(field, structName, allStructs, config)
+				fieldTypeText = sp.getInnerStructFieldTypeWithAlias(field, structName)
 			} else {
 				fieldTypeText = sp.fieldTypeText(field)
 			}
@@ -529,10 +593,10 @@ func generateCodeForFile(inputFile, outputFile string, config *Config) error {
 				embeddedName := deriveEmbeddedFieldName(field.Type)
 				if embeddedName != "" {
 					// Validate getter annotation usage for embedded fields
-					if sp.fieldGetter(field) {
-						if unicode.IsUpper(rune(embeddedName[0])) {
-							return fmt.Errorf("field '%s' in struct '%s' has //+gob:getter annotation but starts with uppercase. Getter annotation should only be used with private (lowercase) fields", embeddedName, structName)
-						}
+					if sp.fieldGetter(field) && unicode.IsUpper(rune(embeddedName[0])) {
+						pos := sp.fileSet.Position(field.Pos())
+						return fmt.Errorf("%s:%d:%d: field '%s' in struct '%s' has //+gob:getter annotation but starts with uppercase. Getter annotation should only be used with private (lowercase) fields",
+							pos.Filename, pos.Line, pos.Column, embeddedName, structName)
 					}
 
 					structField := StructField{
@@ -541,6 +605,8 @@ func generateCodeForFile(inputFile, outputFile string, config *Config) error {
 						FieldName:     embeddedName,
 						FieldTypeText: fieldTypeText,
 						Acronym:       sp.fieldAcronym(field),
+						TypeParamDecl: typeParamDecl,
+						TypeParamUse:  typeParamUse,
 					}
 					if structFlags.Visibility != NoVisibility {
 						if !sp.fieldOptional(field) {
@@ -565,10 +631,10 @@ func generateCodeForFile(inputFile, outputFile string, config *Config) error {
 				}
 
 				// Validate getter annotation usage
-				if sp.fieldGetter(field) {
-					if unicode.IsUpper(rune(fieldName.Name[0])) {
-						return fmt.Errorf("field '%s' in struct '%s' has //+gob:getter annotation but starts with uppercase. Getter annotation should only be used with private (lowercase) fields", fieldName.Name, structName)
-					}
+				if sp.fieldGetter(field) && unicode.IsUpper(rune(fieldName.Name[0])) {
+					pos := sp.fileSet.Position(field.Pos())
+					return fmt.Errorf("%s:%d:%d: field '%s' in struct '%s' has //+gob:getter annotation but starts with uppercase. Getter annotation should only be used with private (lowercase) fields",
+						pos.Filename, pos.Line, pos.Column, fieldName.Name, structName)
 				}
 
 				structField := StructField{
@@ -577,6 +643,8 @@ func generateCodeForFile(inputFile, outputFile string, config *Config) error {
 					FieldName:     fieldName.Name,
 					FieldTypeText: fieldTypeText,
 					Acronym:       sp.fieldAcronym(field),
+					TypeParamDecl: typeParamDecl,
+					TypeParamUse:  typeParamUse,
 				}
 				if structFlags.Visibility != NoVisibility {
 					if !sp.fieldOptional(field) {
@@ -613,13 +681,8 @@ func generateCodeForFile(inputFile, outputFile string, config *Config) error {
 		}
 	}
 
-	result := bld.String()
-	if err := os.WriteFile(outputFile, ([]byte)(result), 0644); err != nil {
-		return fmt.Errorf("failed to write output file: %w", err)
-	}
-
 	// Format and fix imports in-memory using the goimports library
-	processed, err := imports.Process(outputFile, []byte(result), &imports.Options{
+	processed, err := imports.Process(outputFile, []byte(bld.String()), &imports.Options{
 		Comments:   true,
 		TabWidth:   8,
 		FormatOnly: false,
@@ -627,6 +690,16 @@ func generateCodeForFile(inputFile, outputFile string, config *Config) error {
 	if err != nil {
 		return fmt.Errorf("failed to format generated code/imports: %w", err)
 	}
+
+	existing, readErr := os.ReadFile(outputFile)
+	if readErr != nil && !errors.Is(readErr, os.ErrNotExist) {
+		return fmt.Errorf("failed to read existing output file: %w", readErr)
+	}
+	if readErr == nil && bytes.Equal(existing, processed) {
+		fmt.Println("    Output unchanged; skipping write")
+		return nil
+	}
+
 	if err := os.WriteFile(outputFile, processed, 0644); err != nil {
 		return fmt.Errorf("failed to write output file: %w", err)
 	}

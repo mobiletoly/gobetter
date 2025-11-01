@@ -29,10 +29,10 @@ func BenchmarkBuilderChain(b *testing.B) {
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		p := NewPersonBuilder().
-			FirstName("John").
-			LastName("Doe").
 			DOB(tDOB).
 			Email("john@example.com").
+			FirstName("John").
+			LastName("Doe").
 			Build()
 		sink = p
 	}

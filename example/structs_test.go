@@ -11,8 +11,8 @@ func TestNestedStructBuilders(t *testing.T) {
 	database := NewNestedStructExampleConfigDatabaseBuilder().
 		Driver("postgres").
 		Host("db.example.com").
-		Port(5432).
 		Name("myapp").
+		Port(5432).
 		Build()
 
 	if database.Driver != "postgres" {
@@ -35,23 +35,23 @@ func TestNestedStructTypeAliases(t *testing.T) {
 	database := NewNestedStructExampleConfigDatabaseBuilder().
 		Driver("postgres").
 		Host("db.example.com").
-		Port(5432).
 		Name("myapp").
+		Port(5432).
 		Build()
 
 	config := NewNestedStructExampleConfigBuilder().
+		Database(*database).
 		Host("api.example.com").
 		Port(8080).
 		Timeout(30).
-		Database(*database).
 		Build()
 
 	// Test that the type alias allows assignment to the main struct
 	nested := NewNestedStructExampleBuilder().
-		Id(999).
-		Name("ConfigApp").
 		Config(config). // This should work due to type alias compatibility
+		Id(999).
 		IsActive(true).
+		Name("ConfigApp").
 		Build()
 
 	// Verify the nested structure was built correctly
@@ -80,15 +80,15 @@ func TestStructTagPreservation(t *testing.T) {
 	database := NewNestedStructExampleConfigDatabaseBuilder().
 		Driver("postgres").
 		Host("db.example.com").
-		Port(5432).
 		Name("myapp").
+		Port(5432).
 		Build()
 
 	config := NewNestedStructExampleConfigBuilder().
+		Database(*database).
 		Host("api.example.com").
 		Port(8080).
 		Timeout(30).
-		Database(*database).
 		Build()
 
 	// Test JSON marshaling to verify struct tags work
@@ -132,12 +132,12 @@ func TestBuilderChainCompleteness(t *testing.T) {
 	// Test that the builder chain includes all required fields
 	// This test will fail to compile if any required fields are missing from the chain
 
-	// Database builder chain: Driver -> Host -> Port -> Name -> Build
+	// Database builder chain: Driver -> Host -> Name -> Port -> Build
 	database := NewNestedStructExampleConfigDatabaseBuilder().
 		Driver("postgres").
 		Host("localhost").
-		Port(5432).
 		Name("testdb").
+		Port(5432).
 		Build()
 
 	// Note: SslMode is optional (marked with //+gob:_) so it's not in the chain
@@ -146,24 +146,24 @@ func TestBuilderChainCompleteness(t *testing.T) {
 		t.Errorf("Expected SslMode to be false (zero value), got %v", database.SslMode)
 	}
 
-	// Config builder chain: Host -> Port -> Timeout -> Database -> Build
+	// Config builder chain: Database -> Host -> Port -> Timeout -> Build
 	config := NewNestedStructExampleConfigBuilder().
+		Database(*database).
 		Host("api.example.com").
 		Port(8080).
 		Timeout(30).
-		Database(*database).
 		Build()
 
 	if config.Host != "api.example.com" {
 		t.Errorf("Expected Host to be 'api.example.com', got '%s'", config.Host)
 	}
 
-	// Main struct builder chain: Id -> Name -> Config -> IsActive -> Build
+	// Main struct builder chain: Config -> Id -> IsActive -> Name -> Build
 	nested := NewNestedStructExampleBuilder().
-		Id(123).
-		Name("TestApp").
 		Config(config).
+		Id(123).
 		IsActive(true).
+		Name("TestApp").
 		Build()
 
 	if nested.Id() != 123 {
@@ -177,22 +177,22 @@ func TestPointerToStructSupport(t *testing.T) {
 	// Test that this works correctly with type aliases
 
 	config := NewNestedStructExampleConfigBuilder().
-		Host("test.example.com").
-		Port(9000).
-		Timeout(60).
 		Database(*NewNestedStructExampleConfigDatabaseBuilder().
 			Driver("mysql").
 			Host("mysql.example.com").
-			Port(3306).
 			Name("testdb").
+			Port(3306).
 			Build()).
+		Host("test.example.com").
+		Port(9000).
+		Timeout(60).
 		Build()
 
 	nested := NewNestedStructExampleBuilder().
-		Id(456).
-		Name("PointerTest").
 		Config(config). // Assigning to pointer field
+		Id(456).
 		IsActive(false).
+		Name("PointerTest").
 		Build()
 
 	// Verify the pointer assignment worked

@@ -1,11 +1,15 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestFullWorkflow tests the complete workflow from input to formatted output
@@ -342,5 +346,298 @@ type ComplexStruct struct { //+gob:Constructor
 	if err := verifyGoSyntax(outputFile); err != nil {
 		t.Errorf("Generated code has syntax errors: %v", err)
 		t.Logf("Generated code:\n%s", output)
+	}
+}
+
+func TestGenerateCodeSkipsWritingWhenUnchanged(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	const input = `package test
+
+type Person struct { //+gob:Constructor
+	firstName string //+gob:getter
+	lastName  string //+gob:getter
+	age       int
+}
+`
+
+	inputFile := filepath.Join(tmpDir, "person.go")
+	if err := os.WriteFile(inputFile, []byte(input), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	config := &Config{
+		InputPath:             inputFile,
+		GenerateFor:           nil,
+		ConstructorVisibility: ConstructorExported,
+		Sort:                  SortAbc,
+	}
+
+	outputFile := makeOutputFilename(inputFile)
+
+	if err := generateCode(config); err != nil {
+		t.Fatalf("first generateCode call failed: %v", err)
+	}
+
+	infoBefore, err := os.Stat(outputFile)
+	if err != nil {
+		t.Fatalf("stat after first generateCode failed: %v", err)
+	}
+
+	time.Sleep(150 * time.Millisecond)
+
+	if err := generateCode(config); err != nil {
+		t.Fatalf("second generateCode call failed: %v", err)
+	}
+
+	infoAfter, err := os.Stat(outputFile)
+	if err != nil {
+		t.Fatalf("stat after second generateCode failed: %v", err)
+	}
+
+	if !infoBefore.ModTime().Equal(infoAfter.ModTime()) {
+		t.Fatalf("expected mod time to remain unchanged, before=%v after=%v", infoBefore.ModTime(), infoAfter.ModTime())
+	}
+}
+
+func TestSignatureChangeOnConfigMutation(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	const input = `package test
+
+type Person struct { //+gob:Constructor
+	firstName string //+gob:getter
+	lastName  string //+gob:getter
+	age       int
+}
+`
+
+	inputFile := filepath.Join(tmpDir, "person.go")
+	if err := os.WriteFile(inputFile, []byte(input), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	config := &Config{
+		InputPath:             inputFile,
+		GenerateFor:           nil,
+		ConstructorVisibility: ConstructorExported,
+		Sort:                  SortAbc,
+	}
+
+	outputFile := makeOutputFilename(inputFile)
+
+	firstSig := runAndGetSignature(t, config, outputFile)
+
+	config.Sort = SortSeq
+	secondSig := runAndGetSignature(t, config, outputFile)
+	if secondSig == firstSig {
+		t.Fatalf("expected signature to change after Sort mutation: before=%s after=%s", firstSig, secondSig)
+	}
+
+	config.Sort = SortAbc
+	thirdSig := runAndGetSignature(t, config, outputFile)
+	if thirdSig != firstSig {
+		t.Fatalf("expected signature to revert; want %s, got %s", firstSig, thirdSig)
+	}
+
+	infoBefore, err := os.Stat(outputFile)
+	if err != nil {
+		t.Fatalf("stat before final call failed: %v", err)
+	}
+
+	time.Sleep(150 * time.Millisecond)
+	if err := generateCode(config); err != nil {
+		t.Fatalf("generateCode failed after signature stabilization: %v", err)
+	}
+	infoAfter, err := os.Stat(outputFile)
+	if err != nil {
+		t.Fatalf("stat after final call failed: %v", err)
+	}
+	if !infoBefore.ModTime().Equal(infoAfter.ModTime()) {
+		t.Fatalf("expected mod time unchanged when signature identical; before=%v after=%v", infoBefore.ModTime(), infoAfter.ModTime())
+	}
+}
+
+func TestGenericStructBuilder(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	const input = `package test
+
+type Box[T any] struct { //+gob:Constructor
+	Value     T
+	Stream    <-chan T
+	Transform func(T) (T, error)
+}
+`
+
+	inputFile := filepath.Join(tmpDir, "generic.go")
+	if err := os.WriteFile(inputFile, []byte(input), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	config := &Config{
+		InputPath:             inputFile,
+		GenerateFor:           nil,
+		ConstructorVisibility: ConstructorExported,
+		Sort:                  SortSeq,
+	}
+
+	if err := generateCode(config); err != nil {
+		t.Fatalf("generateCode failed: %v", err)
+	}
+
+	outputFile := makeOutputFilename(inputFile)
+	content, err := os.ReadFile(outputFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := string(content)
+
+	checks := []string{
+		"func NewBoxBuilder[T any]() Box_Builder_Value[T]",
+		"type Box_Builder_Value[T any] struct {\n\troot *Box[T]",
+		"func (b Box_Builder_Value[T]) Value(arg T) Box_Builder_Stream[T]",
+		"func (b Box_Builder_Stream[T]) Stream(arg <-chan T) Box_Builder_Transform[T]",
+		"func (b Box_Builder_GobFinalizer[T]) Build() *Box[T]",
+	}
+
+	for _, check := range checks {
+		if !strings.Contains(output, check) {
+			t.Fatalf("generated output missing %q:\n%s", check, output)
+		}
+	}
+
+	if err := verifyGoSyntax(outputFile); err != nil {
+		t.Fatalf("generated generic builder has syntax errors: %v", err)
+	}
+}
+
+func TestAliasCollisionGetsResolved(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	const input = `package test
+
+type Wrap struct { //+gob:Constructor
+	BX struct { //+gob:Constructor
+		Value int
+	} //+gob:Constructor
+	B struct {
+		X struct { //+gob:Constructor
+			Value int
+		} //+gob:Constructor
+	}
+}
+`
+
+	inputFile := filepath.Join(tmpDir, "wrap.go")
+	if err := os.WriteFile(inputFile, []byte(input), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	config := &Config{
+		InputPath:             inputFile,
+		GenerateFor:           nil,
+		ConstructorVisibility: ConstructorExported,
+		Sort:                  SortSeq,
+	}
+
+	if err := generateCode(config); err != nil {
+		t.Fatalf("generateCode failed: %v", err)
+	}
+
+	outputFile := makeOutputFilename(inputFile)
+	content, err := os.ReadFile(outputFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := string(content)
+
+	if !strings.Contains(output, "type WrapBX =") {
+		t.Fatalf("expected alias WrapBX in output:\n%s", output)
+	}
+	if !strings.Contains(output, "type WrapBX_2 =") {
+		t.Fatalf("expected alias WrapBX_2 in output:\n%s", output)
+	}
+}
+
+func runAndGetSignature(t *testing.T, config *Config, outputFile string) string {
+	t.Helper()
+	if err := generateCode(config); err != nil {
+		t.Fatalf("generateCode failed: %v", err)
+	}
+	content, err := os.ReadFile(outputFile)
+	if err != nil {
+		t.Fatalf("reading output failed: %v", err)
+	}
+	if !bytes.Contains(content, []byte("// gobetter:signature=")) {
+		t.Fatalf("signature header missing in output:\n%s", string(content))
+	}
+	sig := extractSignature(string(content))
+	if sig == "" {
+		t.Fatal("signature not found in output")
+	}
+	return sig
+}
+
+func extractSignature(output string) string {
+	scanner := bufio.NewScanner(strings.NewReader(output))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if strings.HasPrefix(line, "// gobetter:signature=") {
+			return line
+		}
+		if strings.HasPrefix(line, "package ") {
+			break
+		}
+	}
+	return ""
+}
+
+func TestInvalidFlagErrors(t *testing.T) {
+	tmpDir := t.TempDir()
+	inputFile := filepath.Join(tmpDir, "input.go")
+	source := `package test
+
+type Person struct { //+gob:Constructor
+	name string
+}
+`
+	if err := os.WriteFile(inputFile, []byte(source), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	testCases := []struct {
+		name     string
+		args     []string
+		expected string
+	}{
+		{
+			name:     "invalid generate-for",
+			args:     []string{"-input", inputFile, "-generate-for", "unknown"},
+			expected: fmt.Sprintf(ErrInvalidGenerateFor, "unknown"),
+		},
+		{
+			name:     "invalid constructor",
+			args:     []string{"-input", inputFile, "-constructor", "weird"},
+			expected: fmt.Sprintf(ErrInvalidConstructor, "weird"),
+		},
+		{
+			name:     "invalid sort",
+			args:     []string{"-input", inputFile, "-sort", "random"},
+			expected: fmt.Sprintf(ErrInvalidSort, "random"),
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := exec.Command("go", append([]string{"run", "."}, tc.args...)...)
+			output, err := cmd.CombinedOutput()
+			if err == nil {
+				t.Fatalf("expected command to fail, stdout/stderr:\n%s", string(output))
+			}
+			if !strings.Contains(string(output), tc.expected) {
+				t.Fatalf("expected error output to contain %q, got:\n%s", tc.expected, string(output))
+			}
+		})
 	}
 }

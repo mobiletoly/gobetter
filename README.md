@@ -43,6 +43,7 @@ c := NewConfigBuilder().
 - **IDE-friendly** - Excellent autocomplete support showing only the next required field
 - **Builder pattern** - Fluent API with method chaining
 - **Nested struct support** - Generate builders for inner structs with clean naming
+- **Generics-ready** - Works with Go type parameters (Go 1.18+) without additional setup
 - **Struct tag preservation** - Maintains JSON, validation, and other struct tags
 - **Flexible configuration** - Control visibility, optional fields, and generation scope
 

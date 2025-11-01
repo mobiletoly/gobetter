@@ -4,13 +4,12 @@ import "regexp"
 
 // Version information
 const (
-	Version = "0.16.0"
+	Version = "0.18.0"
 )
 
 // File extensions and suffixes
 const (
-	GoFileExtension = ".go"
-	GobFileSuffix   = "_gob"
+	GobFileSuffix = "_gob"
 )
 
 // Command line flag names
@@ -27,12 +26,6 @@ const (
 	GenerateForAll       = "all"
 	GenerateForExported  = "exported"
 	GenerateForAnnotated = "annotated"
-)
-
-// Receiver type values
-const (
-	ReceiverValue   = "value"
-	ReceiverPointer = "pointer"
 )
 
 // Constructor visibility values
@@ -75,10 +68,10 @@ const (
 	ErrGoimportsInstall   = "You must install it to continue with gobetter:\n    go get golang.org/x/tools/cmd/goimports"
 	ErrInputRequired      = "Error: \"input\" flag must be specified"
 	ErrFileNotExist       = "File %s does not exist"
-	ErrInvalidGenerateFor = "Error: \"generate-for\" flag must be \"all\", \"exported\", or \"annotated\""
+	ErrInvalidGenerateFor = "invalid value %q for -generate-for; must be one of [all exported annotated]"
 	ErrInvalidReceiver    = "Error: \"receiver\" flag must be \"pointer\" or \"value\""
-	ErrInvalidConstructor = "Error: \"constructor\" flag must be \"exported\", \"package\", or \"none\""
-	ErrInvalidSort        = "Error: \"sort\" flag must be \"seq\" or \"abc\""
+	ErrInvalidConstructor = "invalid value %q for -constructor; must be one of [exported package none]"
+	ErrInvalidSort        = "invalid value %q for -sort; must be one of [seq abc]"
 	ErrReadFile           = "error: failed to read file %s: %v"
 )
 
