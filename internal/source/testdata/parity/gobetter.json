@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "types": [
+    {
+      "package": ".",
+      "type": "Record",
+      "derive": ["builder", "equal", "string"],
+      "constructor": "package",
+      "fields": {
+        "id": {"name": "ID", "getter": true, "optional": true, "skip_string": true},
+        "data": {"skip_builder": true, "skip_equal": true}
+      }
+    }
+  ]
+}

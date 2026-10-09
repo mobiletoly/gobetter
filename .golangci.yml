@@ -1,0 +1,29 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: standard
+  enable:
+    - revive
+    - nolintlint
+  settings:
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+  exclusions:
+    rules:
+      # SourceFile describes discovery state; File already names the parsed inventory.
+      - path: ^internal/source/discover\.go$
+        text: 'type name will be used as source\.SourceFile .*stutters'
+        linters:
+          - revive
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+formatters:
+  enable:
+    - gofmt

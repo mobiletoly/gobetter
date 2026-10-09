@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "types": [
+    {
+      "package": ".",
+      "type": "Model",
+      "derive": [
+        "builder",
+        "getters",
+        "equal",
+        "string"
+      ],
+      "fields": {
+        "_id": {
+          "name": "ID",
+          "getter": true
+        },
+        "Labels": {
+          "optional": true
+        }
+      }
+    }
+  ]
+}
